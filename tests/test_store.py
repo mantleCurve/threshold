@@ -467,6 +467,62 @@ def test_store_exposes_no_event_mutation_functions():
         assert not hasattr(store, forbidden)
 
 
+def test_delete_user_data_erases_everything_for_that_user(user):
+    """A user can erase themselves completely — account, profile, and log.
+
+    Append-only is not the same as undeletable. The triggers stop US quietly
+    rewriting someone's history; they must not become a reason we refuse that
+    person's own request to leave. No soft-delete, no tombstone: a retained
+    shadow copy would make the deletion promise a lie.
+    """
+    store.put_profile(user.id, _sample_profile())
+    store.append_event(_event(user.id, Tier.EMERGENCY, "happened"))
+
+    store.delete_user_data(user.id)
+
+    assert store.get_user(user.id) is None
+    assert store.get_profile(user.id) is None
+    assert store.list_events(user.id) == []
+    # Cascades reached the child tables too.
+    with store.connection() as conn:
+        assert conn.execute("SELECT COUNT(*) c FROM contacts").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM tolerance_events").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) c FROM ladder_config").fetchone()["c"] == 0
+
+
+def test_delete_user_data_reinstalls_the_append_only_trigger(user):
+    """Deletion drops the trigger only inside its own transaction.
+
+    The exception must be narrow. If the trigger were left off after an account
+    deletion, the append-only guarantee would be silently gone for every
+    remaining user — a security regression invisible from the UI.
+    """
+    other = store.create_user(
+        id="other", username="other", password_hash="x", salt="y", role="user"
+    )
+    store.append_event(_event(user.id, Tier.CRAVING, "mine"))
+    store.append_event(_event(other.id, Tier.CRAVING, "theirs"))
+
+    store.delete_user_data(user.id)
+
+    # The surviving user's log is intact and immutable again.
+    assert [e.reason for e in store.list_events(other.id)] == ["theirs"]
+    with pytest.raises(sqlite3.IntegrityError):
+        with store.connection() as conn:
+            conn.execute("DELETE FROM events")
+    with pytest.raises(sqlite3.IntegrityError):
+        with store.connection() as conn:
+            conn.execute("UPDATE events SET reason = 'rewritten'")
+
+
+def test_delete_user_data_on_unknown_user_is_a_noop():
+    """Deleting a nonexistent account does not raise.
+
+    A double-submitted delete button must not produce a 500 on the second click.
+    """
+    store.delete_user_data("no-such-user")
+
+
 def test_events_are_scoped_to_their_user(user):
     """One user's log never contains another's events.
 

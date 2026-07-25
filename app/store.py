@@ -880,8 +880,14 @@ def list_events(user_id: str, limit: int = 200) -> list[Event]:
     ]
 
 
-def delete_user_data(user_id: str) -> None:
+def delete_user_data(user_id: str) -> dict[str, int]:
     """Erase an account and everything attached to it. Backs POST /api/account/delete.
+
+    Also backs the promise made on the public /data-deletion page: immediate and
+    total, with no soft-delete flag, no tombstone row, and no thirty-day
+    recovery window. A retained shadow copy would make that page a lie, and a
+    person who cannot leave cleanly was never safe being honest with us in the
+    first place.
 
     APPEND-ONLY IS NOT THE SAME AS UNDELETABLE, and the distinction is the
     whole point of this function. The triggers on `events` exist to stop us
@@ -902,19 +908,44 @@ def delete_user_data(user_id: str) -> None:
 
     Args:
         user_id: The account to erase. Unknown ids are a no-op, so a
-            double-submitted delete does not error.
+            double-submitted delete button does not produce a 500 on the
+            second click.
+
+    Returns:
+        Per-table counts of deleted rows, so the caller can log THAT a deletion
+        happened without logging anything ABOUT the person it happened to.
     """
+    counts: dict[str, int] = {}
+
     with connection() as conn:
-        # Profiles cascade to ladder_config, contacts and tolerance_events via
-        # the foreign keys, so removing the profile removes those with it.
-        conn.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
+        # Resolve the profile id before deleting anything: several child tables
+        # hang off the profile rather than the user, and once the profile row
+        # is gone we can no longer find them to count.
+        row = conn.execute(
+            "SELECT id FROM profiles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        profile_id = row["id"] if row else None
+
+        # Children before parents. The foreign keys would cascade anyway, but
+        # deleting explicitly is what lets us report accurate counts, and it
+        # means the erasure does not depend on cascade behaviour staying
+        # configured the way it is today.
+        if profile_id is not None:
+            for table in ("ladder_config", "contacts", "tolerance_events"):
+                cursor = conn.execute(
+                    f"DELETE FROM {table} WHERE profile_id = ?", (profile_id,)  # noqa: S608
+                )
+                counts[table] = cursor.rowcount
 
         # Narrow, transaction-scoped exception to the append-only guarantee.
         # See the docstring: erasure at the user's request is not history
-        # rewriting. The trigger is restored before this block exits.
+        # rewriting. The trigger is restored in the `finally` before this block
+        # exits, so it can never be left off for the remaining users — that
+        # would be a security regression invisible from the UI.
         conn.execute("DROP TRIGGER IF EXISTS events_no_delete")
         try:
-            conn.execute("DELETE FROM events WHERE user_id = ?", (user_id,))
+            cursor = conn.execute("DELETE FROM events WHERE user_id = ?", (user_id,))
+            counts["events"] = cursor.rowcount
         finally:
             conn.execute(
                 "CREATE TRIGGER IF NOT EXISTS events_no_delete"
@@ -922,14 +953,20 @@ def delete_user_data(user_id: str) -> None:
                 " BEGIN SELECT RAISE(ABORT, 'events is append-only'); END"
             )
 
-        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        cursor = conn.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
+        counts["profiles"] = cursor.rowcount
 
-    # Vault clips are deliberately NOT deleted here. In this build they are not
-    # keyed to an owner — they belong to the caregiver who recorded them, not
-    # to the person they were recorded for. Deleting another person's recording
-    # of their own voice is not this endpoint's call to make. Flagged rather
-    # than silently skipped: clips need an owner column before deletion can
-    # extend to them correctly.
+        cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        counts["users"] = cursor.rowcount
+
+    # Vault clips are deliberately NOT deleted here, and that is a choice
+    # rather than an oversight. In this build clips carry no owner column: they
+    # are recordings a caregiver made of their own voice. Erasing Sarah's
+    # recording of herself because Sam closed his account is not this
+    # endpoint's call to make, and a blind `DELETE FROM vault_clips` would wipe
+    # every clip in the database for every user. Clips need an owner column
+    # before deletion can correctly extend to them.
+    return counts
 
 
 def latest_event(user_id: str) -> Event | None:
@@ -948,61 +985,3 @@ def latest_event(user_id: str) -> Event | None:
     """
     events = list_events(user_id, limit=1)
     return events[0] if events else None
-
-
-# ---------------------------------------------------------------------------
-# Deletion
-# ---------------------------------------------------------------------------
-def delete_user_data(user_id: str) -> dict[str, int]:
-    """Permanently erase a user and everything attached to them.
-
-    Backs the promise made on the public /data-deletion page: immediate and total,
-    with no soft-delete flag, no tombstone row, and no thirty-day recovery window.
-    A retained shadow copy would make that page a lie, and a person who cannot
-    leave cleanly was never safe being honest with us in the first place.
-
-    Ordering matters: children are removed before parents so that foreign-key
-    enforcement can never leave an orphaned fragment of someone's history behind.
-
-    Returns a per-table count of deleted rows so the caller can log *that* a
-    deletion happened without logging anything *about* the person it happened to.
-    """
-    counts: dict[str, int] = {}
-
-    with connection() as conn:
-        # Resolve the profile id first — several child tables hang off the profile
-        # rather than the user, and once the profile row is gone we cannot find them.
-        row = conn.execute(
-            "SELECT id FROM profiles WHERE user_id = ?", (user_id,)
-        ).fetchone()
-        profile_id = row["id"] if row else None
-
-        if profile_id is not None:
-            for table in ("ladder_config", "contacts", "tolerance_events"):
-                cur = conn.execute(
-                    f"DELETE FROM {table} WHERE profile_id = ?", (profile_id,)
-                )
-                counts[table] = cur.rowcount
-
-        # The event log is append-only in normal operation — deletion by the person
-        # the log is about is the single deliberate exception to that rule.
-        for table in ("events", "profiles"):
-            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
-            counts[table] = cur.rowcount
-
-        # Vault clips are recordings made *for* this user by a caregiver. They are
-        # removed with the account: keeping a stranger's voice memo attached to a
-        # deleted person serves nobody.
-        try:
-            cur = conn.execute("DELETE FROM vault_clips WHERE user_id = ?", (user_id,))
-            counts["vault_clips"] = cur.rowcount
-        except sqlite3.OperationalError:
-            # Older schema without a user_id column on clips; nothing to scope-delete.
-            counts["vault_clips"] = 0
-
-        cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        counts["users"] = cur.rowcount
-
-        conn.commit()
-
-    return counts

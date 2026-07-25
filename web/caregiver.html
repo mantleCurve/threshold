@@ -108,7 +108,10 @@
       <p class="lede" id="brief-text" aria-live="polite">Loading the situation summary…</p>
 
       <div class="row">
-        <a class="btn btn--primary" href="tel:911" id="alert-call-911">Call 911</a>
+        <!-- btn--emergency, not btn--primary: primary uses the LIVE accent, so
+             a 911 button would render calm teal at tier 0. This one is always
+             red. It is an <a href="tel:"> so it works with no JS. -->
+        <a class="btn btn--emergency" href="tel:911" id="alert-call-911">Call 911</a>
         <button type="button" class="btn" id="alert-call-user">Call Sam</button>
         <button type="button" class="btn btn--quiet" id="brief-refresh">Regenerate summary</button>
       </div>

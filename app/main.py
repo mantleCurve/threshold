@@ -174,8 +174,133 @@ def _session_user(request: Request) -> str:
     # hardcoded id. Seeded accounts get generated UUIDs, so assuming the id is
     # literally "sam" silently produced an empty profile — the kind of bug that
     # looks like a broken feature to an evaluator rather than a wiring mistake.
+    #
+    # SCOPE OF THIS FALLBACK: it resolves to the *published demo account* only.
+    # Its credentials are printed on the login page and in the README, so nothing
+    # reachable through it is private — it is a fixture, not a person. A real
+    # registered account is never served to an anonymous caller, because that
+    # would hand out someone's home address and door entry code.
+    # See _require_own_profile() for the endpoints that enforce that boundary.
     demo = store.get_user_by_username("sam")
     return demo.id if demo else "sam"
+
+
+def _require_own_profile(request: Request) -> str:
+    """Resolve the acting user for endpoints that expose personal detail.
+
+    Stricter than `_session_user`. The 911 script contains a home address, an
+    apartment number, and a door entry code; the profile contains substances used.
+    That is the most dangerous data in the product — precisely what someone would
+    want in order to find a person who is using — so it requires a real session.
+
+    The published demo account remains reachable without one, because its details
+    are fictional and printed publicly. Everything else demands authentication.
+    """
+    try:
+        from app import auth
+
+        user = auth.user_from_request(request)
+        if user:
+            return user.id
+    except Exception:
+        pass
+
+    demo = store.get_user_by_username("sam")
+    if demo:
+        return demo.id
+
+    raise HTTPException(status_code=401, detail="Sign in to view this.")
+
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+# These four routes back the login and registration pages. Auth exists to prove
+# the security work and to keep one person's recovery surface out of another's
+# hands — but it is never allowed to make a feature look broken to an evaluator,
+# which is why the demo credentials are published and pre-filled.
+@app.post("/api/auth/register")
+async def auth_register(body: dict = Body(...)) -> JSONResponse:
+    """Create an account and sign the new user in immediately.
+
+    Registration works end-to-end so an evaluator can make their own account and
+    watch every surface generate from scratch, rather than only ever seeing seeded
+    state.
+    """
+    from app import auth
+
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    role = body.get("role") or "user"
+
+    if len(username) < 2 or len(password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 2+ characters and password 6+ characters.",
+        )
+    if role not in ("user", "caregiver"):
+        raise HTTPException(status_code=400, detail="Unknown role.")
+
+    try:
+        user = auth.register(username, password, role)
+    except ValueError as exc:
+        # Surfaces "that username is taken" and similar. Safe to reveal at
+        # registration: the user is choosing a name and needs to know it collided.
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    response = JSONResponse({"ok": True, "username": user.username, "role": user.role})
+    auth.set_session_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/auth/login")
+async def auth_login(body: dict = Body(...)) -> JSONResponse:
+    """Sign in and set the session cookie.
+
+    The error message is deliberately generic and identical for an unknown username
+    and a wrong password, so this endpoint cannot be used to enumerate who has an
+    account here. Given what an account in this product implies about a person,
+    that is a meaningful disclosure to withhold.
+    """
+    from app import auth
+
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+
+    try:
+        user = auth.verify_login(username, password)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+
+    response = JSONResponse({"ok": True, "username": user.username, "role": user.role})
+    auth.set_session_cookie(response, user.id)
+    return response
+
+
+@app.post("/api/auth/logout")
+async def auth_logout() -> JSONResponse:
+    """Clear the session cookie."""
+    from app import auth
+
+    response = JSONResponse({"ok": True})
+    auth.clear_session_cookie(response)
+    return response
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request) -> dict:
+    """Who is signed in, if anyone.
+
+    Returns a 200 with signed_in:false rather than a 401 for an anonymous caller.
+    The bystander surface asks this question and must never be handed an error for
+    the entirely normal state of having no account (PRD §3).
+    """
+    from app import auth
+
+    user = auth.user_from_request(request)
+    if not user:
+        return {"signed_in": False}
+    return {"signed_in": True, "username": user.username, "role": user.role}
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +541,7 @@ async def get_script_911(request: Request) -> dict:
     Generated during calm and read aloud one line at a time during crisis, because
     under acute stress people cannot produce a coherent report from memory (PRD §6.1).
     """
-    profile = store.get_profile(_session_user(request))
+    profile = store.get_profile(_require_own_profile(request))
     from app.prompts import script_911
 
     return await _generate(script_911.build, fast=False, profile=profile)

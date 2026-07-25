@@ -185,7 +185,10 @@
                the written instruction above is the real content, so nothing is
                lost if the graphic is not perceived. -->
           <div class="diagram" style="margin-top: var(--sp-4);">
-            <svg viewBox="0 0 320 130" role="img" aria-labelledby="rp-title" width="100%" height="auto">
+            <!-- No width/height attributes: the viewBox plus the CSS
+                 `svg { display:block; max-width:100% }` in base.css sizes it.
+                 height="auto" is invalid on an SVG element and errors. -->
+            <svg viewBox="0 0 320 130" role="img" aria-labelledby="rp-title" style="width:100%; height:auto;">
               <title id="rp-title">A person lying on their side, top knee bent forward, head tilted back and resting on their arm.</title>
               <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                 <!-- ground line -->

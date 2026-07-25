@@ -270,7 +270,9 @@ legend { padding: 0; }
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
 }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
-.grow { flex: 1 1 auto; min-width: 0; }
+/* flex-basis 0, not auto: .input carries width:100%, which auto would adopt as
+   the basis and push any sibling (e.g. a Send button) onto the next line. */
+.grow { flex: 1 1 0; min-width: 0; }
 
 .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
 
@@ -356,6 +358,22 @@ legend { padding: 0; }
   --btn-line: color-mix(in oklab, var(--danger) 55%, transparent);
 }
 .btn--danger:hover { --btn-bg: color-mix(in oklab, var(--danger) 14%, transparent); --btn-fg: #ffb0a9; }
+
+/* Solid red, at every tier. Used for "Call 911" on the caregiver surface,
+   where .btn--primary would render it in the LIVE accent — meaning a 911
+   button appears calm teal at tier 0. A call-emergency-services control must
+   never inherit a reassuring colour from a low tier. */
+.btn--emergency {
+  --btn-bg: var(--danger);
+  --btn-fg: #1a0402;   /* 6.43:1 on --danger */
+  --btn-line: var(--danger);
+  font-weight: 700;
+}
+.btn--emergency:hover {
+  --btn-bg: color-mix(in oklab, var(--danger) 86%, white);
+  --btn-line: var(--btn-bg);
+}
+.btn--emergency:focus-visible { outline-color: #fff; }
 
 .btn--block { width: 100%; }
 .btn--lg { min-height: 3.5rem; font-size: var(--step-1); padding: 0.85em 1.5em; }
