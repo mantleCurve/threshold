@@ -248,6 +248,45 @@ CREATE TABLE IF NOT EXISTS caregiver_links (
 CREATE INDEX IF NOT EXISTS idx_links_watched
     ON caregiver_links(watched_user_id);
 
+-- Invite codes. THIS TABLE IS WHERE CONSENT BECOMES STRUCTURAL.
+--
+-- PRD P3: the watched person owns the escalation thresholds, and by extension
+-- owns the question of who is watching at all. `caregiver_links` records that a
+-- link exists; this table is the only mechanism by which one can come into
+-- existence. A caregiver cannot type a username and attach themselves to it.
+-- They can only redeem a code that the watched person generated on their own
+-- device, in a calm moment, and handed over deliberately.
+--
+-- That is the answer to "isn't this surveillance?". Not a policy claim in a
+-- privacy page — a schema in which the unconsented case has no representation.
+-- There is no INSERT path into `caregiver_links` that does not begin here or in
+-- the seed fixture.
+--
+-- Three properties, each enforced rather than promised:
+--   * SINGLE USE. `redeemed_at` is stamped inside the same transaction that
+--     writes the link, so a leaked code cannot attach a second watcher. A code
+--     that worked once is dead.
+--   * EXPIRING. `expires_at` is 24h out. A code found on a scrap of paper
+--     months later is not a live permission; consent given in one moment should
+--     not silently still be open in another.
+--   * ATTRIBUTED. `user_id` is the issuer, so redemption always knows exactly
+--     whose ladder is being opened and to whom. The redeemer never names the
+--     person they are attaching to; the code does.
+CREATE TABLE IF NOT EXISTS invites (
+    -- The code itself is the primary key. Codes are generated with `secrets`
+    -- from an unambiguous alphabet; see INVITE_ALPHABET below.
+    code             TEXT PRIMARY KEY,
+    -- The member who issued it. CASCADE so a deleted account cannot leave a
+    -- live code behind that would attach a caregiver to a ghost.
+    user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at       TEXT NOT NULL,   -- ISO-8601
+    expires_at       TEXT NOT NULL,   -- ISO-8601; 24h after creation
+    -- NULL until redeemed. Non-NULL is the single-use latch.
+    redeemed_at      TEXT,
+    redeemed_by      TEXT REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(user_id, created_at);
+
 -- Recorded caregiver messages. `transcript` is real text spoken by a real
 -- person; the model may only SELECT among these clips, never write one.
 --
@@ -327,8 +366,53 @@ def init_db() -> None:
     """
     key = str(_db_path)
     with connection() as conn:
+        # Additive column migrations MUST run before the schema script.
+        #
+        # `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already
+        # exists, so adding a column to the schema literally never reaches a
+        # database created by an earlier version. The next statement that
+        # references the new column — here, the index on vault_clips
+        # (owner_user_id) — then fails with "no such column", and because this
+        # runs inside the FastAPI lifespan, the whole app refuses to boot.
+        #
+        # This is not hypothetical: it took the deployment down. A fresh clone
+        # worked perfectly, which is exactly why it was missed locally.
+        _migrate_columns(conn)
         conn.executescript(_SCHEMA)
     _initialised.add(key)
+
+
+# (table, column, full column definition) — append-only.
+#
+# Adding a column to _SCHEMA is not enough on its own; it must be listed here
+# too, or existing databases will not receive it. SQLite's ALTER TABLE ADD
+# COLUMN cannot add a NOT NULL column without a default, so every entry here
+# must be nullable or carry a default.
+_COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("vault_clips", "owner_user_id", "TEXT"),
+)
+
+
+def _migrate_columns(conn) -> None:
+    """Add any columns missing from an existing database.
+
+    Deliberately additive only. Nothing here drops or rewrites a column: this
+    runs unattended at boot against a database holding people's recovery
+    history, and a migration that can destroy data is not something to execute
+    without a human watching.
+    """
+    for table, column, definition in _COLUMN_MIGRATIONS:
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if not exists:
+            continue  # The schema script below will create it complete.
+
+        present = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    conn.commit()
 
 
 def drop_all() -> None:
@@ -350,6 +434,7 @@ def drop_all() -> None:
             DROP TRIGGER IF EXISTS events_no_delete;
             DROP TABLE IF EXISTS events;
             DROP TABLE IF EXISTS generation_cache_owners;
+            DROP TABLE IF EXISTS invites;
             DROP TABLE IF EXISTS caregiver_links;
             DROP TABLE IF EXISTS vault_clips;
             DROP TABLE IF EXISTS tolerance_events;
@@ -1247,16 +1332,36 @@ def delete_user_data(user_id: str) -> dict[str, int]:
     this app in the first place, and a retained shadow copy would make that
     promise a lie.
 
+    WHAT THIS DELETES, MATCHED TO WHAT /data-deletion PROMISES
+        The public page lists the profile, the event log, Memory Vault
+        recordings and transcripts "linked to your account", and "any cached
+        generations produced for you". All four are removed here:
+        vault clips via `owner_user_id`, and the on-disk cache via the key
+        index this function returns for the caller to unlink. Live in-memory
+        ladder state and the session cookie are cleared by the route, because
+        this module has no access to either — see
+        `app/routes/public.py::post_account_delete`.
+
     Args:
         user_id: The account to erase. Unknown ids are a no-op, so a
             double-submitted delete button does not produce a 500 on the
             second click.
 
     Returns:
-        Per-table counts of deleted rows, so the caller can log THAT a deletion
-        happened without logging anything ABOUT the person it happened to.
+        Per-table counts of deleted rows, plus `cache_keys`: the list of
+        generation-cache keys that were owned solely by this account and must
+        now be unlinked from disk by the caller. The store does not touch the
+        filesystem, so removing the files is the caller's job — the key list is
+        how that responsibility is handed over explicitly rather than assumed.
+        Counts let the caller log THAT a deletion happened without logging
+        anything ABOUT the person it happened to.
     """
     counts: dict[str, int] = {}
+
+    # Resolved BEFORE the ownership rows are deleted; afterwards the association
+    # is gone and the files on disk would be unreachable orphans holding a home
+    # address and a door entry code.
+    cache_keys = cache_keys_exclusively_owned_by(user_id)
 
     with connection() as conn:
         # Resolve the profile id before deleting anything: several child tables
@@ -1294,19 +1399,44 @@ def delete_user_data(user_id: str) -> dict[str, int]:
                 " BEGIN SELECT RAISE(ABORT, 'events is append-only'); END"
             )
 
+        # Vault clips the user owned. /data-deletion promises "Memory Vault
+        # recordings and transcripts linked to your account", and now that clips
+        # carry `owner_user_id` that promise is keepable. Scoped by owner, never
+        # a blanket DELETE: the unowned shared fixtures belong to nobody and one
+        # person leaving must not empty everyone else's vault.
+        cursor = conn.execute(
+            "DELETE FROM vault_clips WHERE owner_user_id = ?", (user_id,)
+        )
+        counts["vault_clips"] = cursor.rowcount
+
+        # The caller unlinks the files; this drops our claim on them.
+        cursor = conn.execute(
+            "DELETE FROM generation_cache_owners WHERE owner_user_id = ?", (user_id,)
+        )
+        counts["generation_cache_owners"] = cursor.rowcount
+
+        # Watch relationships in BOTH directions. If only the outbound side were
+        # cleared, a deleted user's caregiver would keep a row naming an account
+        # that no longer exists — and if that id were ever reissued, a stranger
+        # would inherit a caregiver they never consented to.
+        cursor = conn.execute(
+            "DELETE FROM caregiver_links"
+            " WHERE caregiver_user_id = ? OR watched_user_id = ?",
+            (user_id, user_id),
+        )
+        counts["caregiver_links"] = cursor.rowcount
+
         cursor = conn.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
         counts["profiles"] = cursor.rowcount
 
         cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         counts["users"] = cursor.rowcount
 
-    # Vault clips are deliberately NOT deleted here, and that is a choice
-    # rather than an oversight. In this build clips carry no owner column: they
-    # are recordings a caregiver made of their own voice. Erasing Sarah's
-    # recording of herself because Sam closed his account is not this
-    # endpoint's call to make, and a blind `DELETE FROM vault_clips` would wipe
-    # every clip in the database for every user. Clips need an owner column
-    # before deletion can correctly extend to them.
+    # Files on disk are not this module's to touch, so the keys are handed back
+    # for the caller to unlink. Reported as a count here to keep the return type
+    # honest; the caller reads the keys themselves from
+    # `cache_keys_exclusively_owned_by` before calling this.
+    counts["generation_cache_files"] = len(cache_keys)
     return counts
 
 
