@@ -257,24 +257,51 @@ function initRegister() {
   if (!form) return;
 
   const submit = document.getElementById('register-submit');
+  let verificationEmail = '';
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     showError('register-error', '');
 
-    const username = form.querySelector('#r-username')?.value.trim() || '';
-    const password = form.querySelector('#r-password')?.value || '';
-    // Role decides which product this account gets, so it is read from the
-    // checked radio rather than assumed.
-    const role = form.querySelector('input[name="role"]:checked')?.value || 'user';
-
     const idle = submit ? submit.textContent : '';
     setPending(submit, true, idle);
 
-    const res = await postJson('/api/auth/register', { username, password, role });
+    if (verificationEmail) {
+      const code = form.querySelector('#r-code')?.value.trim() || '';
+      const res = await postJson('/api/auth/register/verify', {
+        email: verificationEmail,
+        code,
+      });
+      if (res.ok) {
+        redirectForRole(res.data.role || 'user');
+        return;
+      }
+      setPending(submit, false, idle);
+      showError('register-error', errorMessage(res));
+      document.getElementById('register-error')?.focus?.();
+      return;
+    }
 
-    if (res.ok) {
-      redirectForRole(res.data.role || role);
+    const email = form.querySelector('#r-email')?.value.trim() || '';
+    const fullName = form.querySelector('#r-name')?.value.trim() || '';
+    const phone = form.querySelector('#r-phone')?.value.trim() || '';
+    const password = form.querySelector('#r-password')?.value || '';
+    const res = await postJson('/api/auth/register', {
+      email,
+      full_name: fullName,
+      phone,
+      password,
+      role: 'user',
+    });
+
+    if (res.ok && res.data.verification_required) {
+      verificationEmail = res.data.email || email;
+      form.querySelectorAll('.signup-account-field').forEach((field) => { field.hidden = true; });
+      const verifyField = document.getElementById('r-verify-field');
+      if (verifyField) verifyField.hidden = false;
+      if (submit) submit.textContent = 'Verify email and create account';
+      setPending(submit, false, 'Verify email and create account');
+      form.querySelector('#r-code')?.focus();
       return;
     }
 
@@ -314,6 +341,7 @@ function initRegisterCaregiver() {
 
   const submit = document.getElementById('register-caregiver-submit');
   const codeInput = form.querySelector('#rc-code');
+  let verificationEmail = '';
 
   // Keep the visible value canonical as they type. Purely cosmetic — the server
   // normalises regardless — but it makes a mistyped code obvious on the screen
@@ -328,8 +356,28 @@ function initRegisterCaregiver() {
     e.preventDefault();
     showError('register-caregiver-error', '');
 
+    if (verificationEmail) {
+      const verificationCode =
+        form.querySelector('#rc-verification-code')?.value.trim() || '';
+      const idle = submit ? submit.textContent : '';
+      setPending(submit, true, idle);
+      const verified = await postJson('/api/auth/register/verify', {
+        email: verificationEmail,
+        code: verificationCode,
+      });
+      if (verified.ok) {
+        redirectForRole('caregiver');
+        return;
+      }
+      setPending(submit, false, idle);
+      showError('register-caregiver-error', errorMessage(verified));
+      return;
+    }
+
     const code = codeInput?.value.trim().toUpperCase() || '';
-    const username = form.querySelector('#rc-username')?.value.trim() || '';
+    const email = form.querySelector('#rc-email')?.value.trim() || '';
+    const fullName = form.querySelector('#rc-name')?.value.trim() || '';
+    const phone = form.querySelector('#rc-phone')?.value.trim() || '';
     const password = form.querySelector('#rc-password')?.value || '';
 
     if (!code) {
@@ -343,26 +391,22 @@ function initRegisterCaregiver() {
     setPending(submit, true, idle);
 
     const res = await postJson('/api/auth/register', {
-      username,
+      email,
+      full_name: fullName,
+      phone,
       password,
       role: 'caregiver',
       invite_code: code,
     });
 
-    if (res.ok) {
-      // The account exists, but the link may not: the server reports
-      // `linked: false` when the code was valid at the check and spent in the
-      // moment between. Say so instead of dropping them onto an empty caregiver
-      // page with no explanation of why it is empty.
-      if (res.data.linked === false) {
-        setPending(submit, false, idle);
-        showError('register-caregiver-error',
-          `${res.data.link_error || 'The code could not be used.'} ` +
-          'Your account was created and you are signed in — ask for a new code ' +
-          'and enter it from the caregiver page.');
-        return;
-      }
-      redirectForRole('caregiver');
+    if (res.ok && res.data.verification_required) {
+      verificationEmail = res.data.email || email;
+      form.querySelectorAll('.signup-account-field').forEach((field) => { field.hidden = true; });
+      const verifyField = document.getElementById('rc-verify-field');
+      if (verifyField) verifyField.hidden = false;
+      if (submit) submit.textContent = 'Verify email and create account';
+      setPending(submit, false, 'Verify email and create account');
+      form.querySelector('#rc-verification-code')?.focus();
       return;
     }
 

@@ -99,7 +99,7 @@
              mechanism, not a formality — see the page comment. autocomplete is
              "one-time-code" so a phone offers to paste it from a text message
              rather than making an exhausted person retype it at midnight. -->
-        <div class="field">
+        <div class="field signup-account-field">
           <label for="rc-code">Their invite code</label>
           <input class="input data" type="text" id="rc-code" name="invite_code"
                  required autocapitalize="characters" autocomplete="one-time-code"
@@ -112,15 +112,27 @@
           </p>
         </div>
 
-        <div class="field">
-          <label for="rc-username">Choose a username</label>
-          <input class="input" type="text" id="rc-username" name="username"
-                 autocomplete="username" required autocapitalize="none" spellcheck="false"
-                 aria-describedby="rc-username-hint">
-          <p class="hint" id="rc-username-hint">Anything you like. They will not see it.</p>
+        <div class="field signup-account-field">
+          <label for="rc-name">Full name</label>
+          <input class="input" type="text" id="rc-name" name="full_name"
+                 autocomplete="name" required>
         </div>
 
-        <div class="field">
+        <div class="field signup-account-field">
+          <label for="rc-email">Email</label>
+          <input class="input" type="email" id="rc-email" name="email"
+                 autocomplete="email" inputmode="email" required>
+        </div>
+
+        <div class="field signup-account-field">
+          <label for="rc-phone">Phone number</label>
+          <input class="input" type="tel" id="rc-phone" name="phone"
+                 autocomplete="tel" inputmode="tel" required
+                 aria-describedby="rc-phone-hint">
+          <p class="hint" id="rc-phone-hint">Required contact information. We do not phone-verify it.</p>
+        </div>
+
+        <div class="field signup-account-field">
           <label for="rc-password">Choose a password</label>
           <input class="input" type="password" id="rc-password" name="password"
                  autocomplete="new-password" required minlength="6"
@@ -134,12 +146,20 @@
              if scripting fails and the browser submits it natively. -->
         <input type="hidden" name="role" value="caregiver">
 
+        <div class="field" id="rc-verify-field" hidden>
+          <label for="rc-verification-code">Email verification code</label>
+          <input class="input data" type="text" id="rc-verification-code"
+                 autocomplete="one-time-code" inputmode="numeric"
+                 pattern="[0-9]{6}" maxlength="6">
+          <p class="hint">Enter the six digits sent to your email. It expires in 10 minutes.</p>
+        </div>
+
         <!-- A11Y: assertive, because a failed registration blocks the person
              entirely and they may be here at 3am with no patience left. -->
         <p class="error-text" id="register-caregiver-error" role="alert" hidden></p>
 
         <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-caregiver-submit">
-          Create my account
+          Email my verification code
         </button>
       </form>
 

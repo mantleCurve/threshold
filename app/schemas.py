@@ -138,10 +138,21 @@ class RegisterRequest(_StrictBody):
     cannot drift between this file, the seed, and the auth module.
     """
 
-    username: str = Field(
-        min_length=MIN_USERNAME_CHARS,
-        max_length=MAX_USERNAME_CHARS,
-        description="Display identifier. Uniqueness is checked by app.auth, not here.",
+    email: str = Field(
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    full_name: str = Field(
+        min_length=2,
+        max_length=100,
+        description="The person's name; no separate username is required.",
+    )
+    phone: str = Field(
+        min_length=7,
+        max_length=24,
+        pattern=r"^\+?[0-9().\-\s]{7,24}$",
+        description="Contact number only. Threshold does not phone-verify it.",
     )
     password: str = Field(
         min_length=MIN_PASSWORD_CHARS,
@@ -153,6 +164,18 @@ class RegisterRequest(_StrictBody):
         pattern="^(user|caregiver)$",
         description="Closed set. Anything else is a 422, not a silently-defaulted user.",
     )
+    invite_code: str = Field(default="", max_length=32)
+
+
+class VerifyRegistrationRequest(_StrictBody):
+    """Body of the second registration step."""
+
+    email: str = Field(
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    )
+    code: str = Field(pattern=r"^\d{6}$")
 
 
 class LoginRequest(_StrictBody):

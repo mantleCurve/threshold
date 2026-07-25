@@ -63,15 +63,29 @@
       </div>
 
       <form class="stack" id="register-form" method="post" action="/api/auth/register" novalidate>
-        <div class="field">
-          <label for="r-username">Username</label>
-          <input class="input" type="text" id="r-username" name="username"
-                 autocomplete="username" required autocapitalize="none" spellcheck="false"
-                 aria-describedby="r-username-hint">
-          <p class="hint" id="r-username-hint">Any name you like. It is not shown to anyone else.</p>
+        <div class="field signup-account-field">
+          <label for="r-name">Full name</label>
+          <input class="input" type="text" id="r-name" name="full_name"
+                 autocomplete="name" required>
         </div>
 
-        <div class="field">
+        <div class="field signup-account-field">
+          <label for="r-email">Email</label>
+          <input class="input" type="email" id="r-email" name="email"
+                 autocomplete="email" inputmode="email" required
+                 aria-describedby="r-email-hint">
+          <p class="hint" id="r-email-hint">We will email a six-digit verification code.</p>
+        </div>
+
+        <div class="field signup-account-field">
+          <label for="r-phone">Phone number</label>
+          <input class="input" type="tel" id="r-phone" name="phone"
+                 autocomplete="tel" inputmode="tel" required
+                 aria-describedby="r-phone-hint">
+          <p class="hint" id="r-phone-hint">Required contact information. We do not phone-verify it.</p>
+        </div>
+
+        <div class="field signup-account-field">
           <label for="r-password">Password</label>
           <input class="input" type="password" id="r-password" name="password"
                  autocomplete="new-password" required minlength="6"
@@ -79,42 +93,18 @@
           <p class="hint" id="r-password-hint">Six characters or more.</p>
         </div>
 
-        <!-- Role. This choice decides which product you get, so it is a
-             fieldset with a legend rather than a bare list of inputs: a screen
-             reader announces "Which are you?" once, then each option.
-             A11Y: <fieldset> + <legend> already forms a native radio group and
-             is announced correctly. An extra role="radiogroup" would override
-             the native semantics for no gain, so it is deliberately absent. -->
-        <fieldset class="field">
-          <legend class="label" style="margin-bottom: var(--sp-3);">Which are you?</legend>
-          <div class="stack-tight">
-            <label class="switch" style="grid-template-columns: 1.25rem 1fr; align-items: center;">
-              <input type="radio" name="role" value="user" checked
-                     style="width:1.25rem;height:1.25rem;border-radius:50%;">
-              <span class="switch__text">
-                Member — I am in recovery
-                <span class="hint">You get the ladder, the voice control, and the log.</span>
-              </span>
-            </label>
-            <label class="switch" style="grid-template-columns: 1.25rem 1fr; align-items: center;">
-              <input type="radio" name="role" value="caregiver"
-                     style="width:1.25rem;height:1.25rem;border-radius:50%;">
-              <span class="switch__text">
-                Caregiver — someone invited me
-                <span class="hint">
-                  You get alerts, context, and exactly what you're allowed to see.
-                  You'll need the member's invite code — there is a
-                  <a href="/register/caregiver" class="mark">page written for you</a>.
-                </span>
-              </span>
-            </label>
-          </div>
-        </fieldset>
+        <div class="field" id="r-verify-field" hidden>
+          <label for="r-code">Email verification code</label>
+          <input class="input data" type="text" id="r-code"
+                 autocomplete="one-time-code" inputmode="numeric"
+                 pattern="[0-9]{6}" maxlength="6" aria-describedby="r-code-hint">
+          <p class="hint" id="r-code-hint">Enter the six digits sent to your email. It expires in 10 minutes.</p>
+        </div>
 
         <!-- A11Y: assertive, because registration failure blocks the user. -->
         <p class="error-text" id="register-error" role="alert" hidden></p>
 
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-submit">Create account</button>
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-submit">Email my verification code</button>
       </form>
 
       <div class="notice notice--warn">

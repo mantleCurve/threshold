@@ -201,13 +201,24 @@ def test_register_rejects_an_unknown_role():
 
 
 def test_register_defaults_to_the_least_privileged_role():
-    assert schemas.RegisterRequest(username="sam", password="threshold").role == "user"
+    assert schemas.RegisterRequest(
+        email="sam@example.com",
+        full_name="Sam Person",
+        phone="+1 502 555 0100",
+        password="threshold",
+    ).role == "user"
 
 
 def test_register_accepts_both_real_roles():
     for role in ("user", "caregiver"):
         assert (
-            schemas.RegisterRequest(username="sam", password="threshold", role=role).role
+            schemas.RegisterRequest(
+                email="sam@example.com",
+                full_name="Sam Person",
+                phone="+1 502 555 0100",
+                password="threshold",
+                role=role,
+            ).role
             == role
         )
 

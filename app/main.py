@@ -36,10 +36,15 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import deps, store, triage
+from app import deps, email as email_delivery, registration, store, triage
 from app.security import SecurityMiddleware
 from app.models import Contact, Event, Tier, TriageResult, UserProfile
-from app.schemas import ActionReceiptRequest
+from app.schemas import (
+    ActionReceiptRequest,
+    LoginRequest,
+    RegisterRequest,
+    VerifyRegistrationRequest,
+)
 
 # The authorization primitives live in `app.deps` so that this module, the routers
 # under `app.routes`, and any future surface all make the SAME privacy decision.
@@ -80,6 +85,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 # the other. Deletion clearing "the" live state would clear only one of two.
 _tiers = deps._tiers
 _listeners = deps._listeners
+_delivery_tasks: set[asyncio.Task] = set()
 
 
 def _now() -> datetime:
@@ -155,15 +161,14 @@ async def _broadcast(payload: dict) -> None:
             pass
 
 
-def _record(user_id: str, result: TriageResult, source: str) -> None:
+def _record(user_id: str, result: TriageResult, source: str) -> Event:
     """Apply a triage decision: update the live tier and append to the audit log.
 
     PRD §11: every event is visible to the user. There is no hidden log — this is the
     only write path for ladder history, and nothing in the app filters it on read.
     """
     _tiers[user_id] = result.tier
-    store.append_event(
-        Event(
+    event = Event(
             id=str(uuid.uuid4()),
             user_id=user_id,
             at=_now(),
@@ -173,7 +178,53 @@ def _record(user_id: str, result: TriageResult, source: str) -> None:
             actions_planned=[a.kind for a in result.actions],
             actions_taken=[],
         )
+    store.append_event(event)
+    return event
+
+
+async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
+    """Email every verified linked caregiver; never delay the emergency UI."""
+    from app.models import TIER_NAMES
+
+    if event.tier < Tier.EMERGENCY:
+        return
+    profile = store.get_profile(user_id)
+    member = store.get_user(user_id)
+    member_name = (
+        profile.name if profile else (member.full_name if member else "A member")
     )
+    for caregiver_id in store.caregivers_for(user_id):
+        caregiver = store.get_user(caregiver_id)
+        if not caregiver or not caregiver.email or not caregiver.email_verified:
+            continue
+        delivered, _error = await email_delivery.send_caregiver_alert(
+            caregiver.email,
+            member_name,
+            tier_name=TIER_NAMES[event.tier],
+            idempotency_key=f"threshold-alert/{event.id}/{caregiver.id}",
+        )
+        if delivered:
+            store.append_event(
+                Event(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    at=_now(),
+                    tier=event.tier,
+                    trigger_source="delivery_receipt",
+                    reason="A linked caregiver emergency email was delivered.",
+                    actions_planned=[],
+                    actions_taken=["caregiver_email_delivered"],
+                )
+            )
+
+
+def _schedule_emergency_alerts(user_id: str, event: Event) -> None:
+    """Retain background delivery tasks until completion."""
+    if event.tier < Tier.EMERGENCY:
+        return
+    task = asyncio.create_task(_deliver_emergency_alerts(user_id, event))
+    _delivery_tasks.add(task)
+    task.add_done_callback(_delivery_tasks.discard)
 
 
 def _result_payload(result: TriageResult) -> dict:
@@ -208,7 +259,10 @@ async def lifespan(app: FastAPI):
         # A seed failure must not prevent the app from serving. Registration still
         # works, so an evaluator can create their own account and use every feature.
         log.warning("seed skipped: %s", exc)
-    yield
+    try:
+        yield
+    finally:
+        await email_delivery.close()
 
 
 app = FastAPI(
@@ -306,98 +360,52 @@ def _require_own_profile(request: Request) -> str:
 # hands — but it is never allowed to make a feature look broken to an evaluator,
 # which is why the demo credentials are published and pre-filled.
 @app.post("/api/auth/register")
-async def auth_register(body: dict = Body(...)) -> JSONResponse:
-    """Create an account and sign the new user in immediately.
+async def auth_register(body: RegisterRequest) -> JSONResponse:
+    """Start a two-step signup and email a short-lived verification code."""
+    try:
+        pending = await registration.begin(
+            email=body.email,
+            full_name=body.full_name,
+            phone=body.phone,
+            password=body.password,
+            role=body.role,
+            invite_code=body.invite_code,
+        )
+    except registration.RegistrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(
+        {
+            "ok": True,
+            "verification_required": True,
+            "email": pending.email,
+            "expires_in_seconds": int(registration.CODE_TTL.total_seconds()),
+        },
+        status_code=202,
+    )
 
-    Registration works end-to-end so an evaluator can make their own account and
-    watch every surface generate from scratch, rather than only ever seeing seeded
-    state.
 
-    INVITE CODES (role=caregiver only). A caregiver may pass `invite_code`, which
-    is redeemed as part of registration so they land on a working surface instead
-    of an empty one asking them to go and find a code. PRD P3: a caregiver can
-    only ever attach to a member who generated a code and handed it over — there
-    is no field on this endpoint that lets a caregiver name the account they want
-    to watch, and that absence is the consent guarantee.
-
-    The code is validated BEFORE the account is created and redeemed after. A bad
-    code therefore leaves no half-registered account behind; a good one cannot be
-    burned by a username collision that fails afterwards.
-    """
+@app.post("/api/auth/register/verify")
+async def auth_register_verify(body: VerifyRegistrationRequest) -> JSONResponse:
+    """Verify the emailed code, create the account, and start its session."""
     from app import auth
 
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    role = body.get("role") or "user"
-    invite_code = (body.get("invite_code") or "").strip()
-
-    if len(username) < 2 or len(password) < 6:
-        raise HTTPException(
-            status_code=400,
-            detail="Username must be 2+ characters and password 6+ characters.",
-        )
-    if role not in ("user", "caregiver"):
-        raise HTTPException(status_code=400, detail="Unknown role.")
-
-    # An invite code on a member registration is meaningless — a member does not
-    # attach themselves to anyone. Refusing rather than ignoring it, because
-    # silently discarding it would let someone believe a link was made.
-    if invite_code and role != "caregiver":
-        raise HTTPException(
-            status_code=400,
-            detail="Invite codes are redeemed by caregivers, not by members.",
-        )
-
-    # Check the code is live BEFORE creating the account. Registering first and
-    # discovering the code was expired would leave an orphan caregiver account
-    # with no link and no obvious way to recover.
-    if invite_code:
-        pending = store.get_invite(invite_code)
-        if pending is None or pending.is_spent or pending.is_expired(_now_naive()):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "That invite code is not valid. Codes work once and last 24 "
-                    "hours — ask the person who invited you for a fresh one."
-                ),
-            )
-
     try:
-        user = auth.register(username, password, role)
-    except (ValueError, auth.AuthError) as exc:
-        # Surfaces "that username is taken" and similar. Safe to reveal at
-        # registration: the user is choosing a name and needs to know it collided.
-        raise HTTPException(status_code=409, detail=str(exc))
+        completed = registration.complete(body.email, body.code)
+    except registration.RegistrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    watching: str | None = None
-    if invite_code:
-        try:
-            watched_id = store.redeem_invite(invite_code, user.id, _now_naive())
-            watched = store.get_user(watched_id)
-            watching = watched.username if watched else None
-        except store.InviteError as exc:
-            # The account exists and the caregiver is signed in; only the link
-            # failed. Say so plainly rather than 500ing — they can redeem a new
-            # code from the caregiver surface without registering again.
-            log.warning("invite redemption failed at registration: %s", exc)
-            response = JSONResponse(
-                {
-                    "ok": True,
-                    "username": user.username,
-                    "role": user.role,
-                    "linked": False,
-                    "link_error": str(exc),
-                }
-            )
-            auth.set_session_cookie(response, user.id)
-            return response
-
-    payload = {"ok": True, "username": user.username, "role": user.role}
-    if invite_code:
-        payload["linked"] = True
-        payload["watching"] = watching
+    payload: dict[str, object] = {
+        "ok": True,
+        "full_name": completed.user.full_name,
+        "role": completed.user.role,
+    }
+    if completed.user.role == "caregiver":
+        payload["linked"] = completed.link_error is None
+        payload["watching"] = completed.watching
+        if completed.link_error:
+            payload["link_error"] = completed.link_error
     response = JSONResponse(payload)
-    auth.set_session_cookie(response, user.id)
+    auth.set_session_cookie(response, completed.user.id)
     return response
 
 
@@ -501,7 +509,7 @@ async def post_invite_redeem(request: Request, body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/auth/login")
-async def auth_login(body: dict = Body(...)) -> JSONResponse:
+async def auth_login(body: LoginRequest) -> JSONResponse:
     """Sign in and set the session cookie.
 
     The error message is deliberately generic and identical for an unknown username
@@ -511,15 +519,18 @@ async def auth_login(body: dict = Body(...)) -> JSONResponse:
     """
     from app import auth
 
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-
     try:
-        user = auth.verify_login(username, password)
+        user = auth.verify_login(body.username, body.password)
     except Exception:
-        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
 
-    response = JSONResponse({"ok": True, "username": user.username, "role": user.role})
+    response = JSONResponse(
+        {
+            "ok": True,
+            "full_name": user.full_name or user.username,
+            "role": user.role,
+        }
+    )
     auth.set_session_cookie(response, user.id)
     return response
 
@@ -654,7 +665,8 @@ async def post_utterance(request: Request, body: dict = Body(...)) -> dict:
     result = triage.evaluate(
         _current_tier(user_id), utterance=text, profile=profile, now=_now()
     )
-    _record(user_id, result, source="utterance")
+    event = _record(user_id, result, source="utterance")
+    _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
 
@@ -698,7 +710,8 @@ async def post_sensor(request: Request, body: dict = Body(...)) -> dict:
         profile=profile,
         now=_now(),
     )
-    _record(user_id, result, source="sensor")
+    event = _record(user_id, result, source="sensor")
+    _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
     return payload
@@ -732,7 +745,8 @@ async def post_tier(request: Request, body: dict = Body(...)) -> dict:
         actions=triage.actions_for_tier(tier, profile),
         notify_caregiver=triage.notify_caregiver_for(tier, profile),
     )
-    _record(user_id, result, source="manual")
+    event = _record(user_id, result, source="manual")
+    _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
     return payload

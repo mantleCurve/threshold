@@ -303,7 +303,7 @@ def test_redeeming_an_invalid_code_over_http_says_why(client, caregiver):
     assert res.json()["detail"]
 
 
-def test_registration_redeems_a_code_atomically(client, member):
+def test_registration_redeems_a_code_atomically(client, member, monkeypatch):
     """A caregiver arrives with a code and lands on a working surface.
 
     Registering and redeeming in one request is what stops a new caregiver
@@ -313,21 +313,36 @@ def test_registration_redeems_a_code_atomically(client, member):
     """
     invite = store.create_invite(member.id)
 
+    sent: dict[str, str] = {}
+
+    async def fake_send(email, code, **_kwargs):
+        sent["code"] = code
+        return True, None
+
+    monkeypatch.setenv("THRESHOLD_SECRET", "test-registration-secret")
+    monkeypatch.setattr("app.registration.email_delivery.send_verification_code", fake_send)
     res = client.post(
         "/api/auth/register",
         json={
-            "username": "sister",
+            "email": "sister@example.com",
+            "full_name": "Sister Person",
+            "phone": "+1 502 555 0142",
             "password": "threshold",
             "role": "caregiver",
             "invite_code": invite.code,
         },
     )
 
-    assert res.status_code == 200, res.text
-    assert res.json()["linked"] is True
-    assert res.json()["watching"] == "member-one"
+    assert res.status_code == 202, res.text
+    verified = client.post(
+        "/api/auth/register/verify",
+        json={"email": "sister@example.com", "code": sent["code"]},
+    )
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["linked"] is True
+    assert verified.json()["watching"] == "member-one"
 
-    new_caregiver = store.get_user_by_username("sister")
+    new_caregiver = store.get_user_by_email("sister@example.com")
     assert store.watched_user_for(new_caregiver.id) == member.id
 
 
@@ -344,7 +359,9 @@ def test_registration_with_a_dead_code_creates_no_account(client, member, caregi
     res = client.post(
         "/api/auth/register",
         json={
-            "username": "sister",
+            "email": "sister@example.com",
+            "full_name": "Sister Person",
+            "phone": "+1 502 555 0142",
             "password": "threshold",
             "role": "caregiver",
             "invite_code": invite.code,
@@ -352,7 +369,7 @@ def test_registration_with_a_dead_code_creates_no_account(client, member, caregi
     )
 
     assert res.status_code == 400
-    assert store.get_user_by_username("sister") is None
+    assert store.get_user_by_email("sister@example.com") is None
 
 
 def test_a_member_may_not_register_with_an_invite_code(client, member):
@@ -365,7 +382,9 @@ def test_a_member_may_not_register_with_an_invite_code(client, member):
     res = client.post(
         "/api/auth/register",
         json={
-            "username": "someone",
+            "email": "someone@example.com",
+            "full_name": "Someone Person",
+            "phone": "+1 502 555 0143",
             "password": "threshold",
             "role": "user",
             "invite_code": invite.code,

@@ -15,10 +15,11 @@ WHAT THEY DELIBERATELY DO NOT DO
 from __future__ import annotations
 
 import pytest
+import uuid
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app import security
+from app import auth, security, store
 
 
 @pytest.fixture
@@ -183,18 +184,37 @@ def test_session_cookie_is_httponly(client):
         assert "samesite" in cookie
 
 
-def test_registration_rejects_a_duplicate_username_cleanly(client):
-    """A taken username is a 409, not a 500.
+def test_registration_rejects_a_duplicate_email_cleanly(client):
+    """A taken email is a controlled 400, not a 500.
 
     This was a real bug: auth.AuthError does not subclass ValueError, so the
     409 handler never fired and an evaluator picking a taken name got an
     Internal Server Error.
     """
     security._hits.clear()
-    r = client.post(
-        "/api/auth/register", json={"username": "sam", "password": "another-pw"}
+    email = f"taken-{uuid.uuid4().hex}@example.com"
+    password_hash, salt = auth.hash_password("threshold")
+    store.create_user(
+        id=uuid.uuid4().hex,
+        username=email,
+        password_hash=password_hash,
+        salt=salt,
+        role="user",
+        email=email,
+        email_verified=True,
+        full_name="Taken Person",
+        phone="+1 502 555 0199",
     )
-    assert r.status_code == 409, f"expected 409 for duplicate, got {r.status_code}"
+    r = client.post(
+        "/api/auth/register",
+        json={
+            "email": email,
+            "full_name": "Taken Person",
+            "phone": "+1 502 555 0199",
+            "password": "another-pw",
+        },
+    )
+    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------

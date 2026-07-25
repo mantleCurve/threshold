@@ -166,6 +166,8 @@ CREATE TABLE IF NOT EXISTS users (
     role          TEXT NOT NULL CHECK (role IN ('user', 'caregiver')),
     email         TEXT UNIQUE COLLATE NOCASE,
     email_verified INTEGER NOT NULL DEFAULT 0,
+    full_name     TEXT NOT NULL DEFAULT '',
+    phone         TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL    -- ISO-8601
 );
 
@@ -180,6 +182,8 @@ CREATE TABLE IF NOT EXISTS pending_registrations (
     salt           TEXT NOT NULL,
     role           TEXT NOT NULL CHECK (role IN ('user', 'caregiver')),
     invite_code    TEXT NOT NULL DEFAULT '',
+    full_name      TEXT NOT NULL DEFAULT '',
+    phone          TEXT NOT NULL DEFAULT '',
     code_digest    TEXT NOT NULL,
     expires_at     TEXT NOT NULL,
     attempts       INTEGER NOT NULL DEFAULT 0,
@@ -442,6 +446,10 @@ _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("events", "actions_planned", "TEXT NOT NULL DEFAULT '[]'"),
     ("users", "email", "TEXT"),
     ("users", "email_verified", "INTEGER NOT NULL DEFAULT 1"),
+    ("users", "full_name", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "phone", "TEXT NOT NULL DEFAULT ''"),
+    ("pending_registrations", "full_name", "TEXT NOT NULL DEFAULT ''"),
+    ("pending_registrations", "phone", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -531,6 +539,8 @@ class UserRecord:
     role: str
     email: str | None
     email_verified: bool
+    full_name: str
+    phone: str
     created_at: datetime
 
 
@@ -543,6 +553,8 @@ def create_user(
     role: str,
     email: str | None = None,
     email_verified: bool = False,
+    full_name: str = "",
+    phone: str = "",
     created_at: datetime | None = None,
 ) -> UserRecord:
     """Insert a new account row.
@@ -571,8 +583,9 @@ def create_user(
     with connection() as conn:
         conn.execute(
             "INSERT INTO users"
-            " (id, username, password_hash, salt, role, email, email_verified, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " (id, username, password_hash, salt, role, email, email_verified,"
+            " full_name, phone, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 id,
                 username,
@@ -581,6 +594,8 @@ def create_user(
                 role,
                 email.lower() if email else None,
                 int(email_verified or not email),
+                full_name.strip(),
+                phone.strip(),
                 created.isoformat(),
             ),
         )
@@ -592,6 +607,8 @@ def create_user(
         role=role,
         email=email.lower() if email else None,
         email_verified=bool(email_verified or not email),
+        full_name=full_name.strip(),
+        phone=phone.strip(),
         created_at=created,
     )
 
@@ -613,6 +630,8 @@ def _row_to_user(row: sqlite3.Row) -> UserRecord:
         role=row["role"],
         email=row["email"],
         email_verified=bool(row["email_verified"]),
+        full_name=row["full_name"],
+        phone=row["phone"],
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -632,6 +651,16 @@ def get_user_by_username(username: str) -> UserRecord | None:
     with connection() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+    return _row_to_user(row) if row else None
+
+
+def get_user_by_email(email: str) -> UserRecord | None:
+    """Look up a verified account by email address, case-insensitively."""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
         ).fetchone()
     return _row_to_user(row) if row else None
 
@@ -676,6 +705,8 @@ class PendingRegistration:
     salt: str
     role: str
     invite_code: str
+    full_name: str
+    phone: str
     code_digest: str
     expires_at: datetime
     attempts: int
@@ -693,8 +724,8 @@ def put_pending_registration(pending: PendingRegistration) -> PendingRegistratio
             """
             INSERT INTO pending_registrations
                 (id, email, username, password_hash, salt, role, invite_code,
-                 code_digest, expires_at, attempts, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 full_name, phone, code_digest, expires_at, attempts, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 pending.id,
@@ -704,6 +735,8 @@ def put_pending_registration(pending: PendingRegistration) -> PendingRegistratio
                 pending.salt,
                 pending.role,
                 pending.invite_code,
+                pending.full_name,
+                pending.phone,
                 pending.code_digest,
                 pending.expires_at.isoformat(),
                 pending.attempts,
@@ -730,6 +763,8 @@ def get_pending_registration(email: str) -> PendingRegistration | None:
         salt=row["salt"],
         role=row["role"],
         invite_code=row["invite_code"],
+        full_name=row["full_name"],
+        phone=row["phone"],
         code_digest=row["code_digest"],
         expires_at=datetime.fromisoformat(row["expires_at"]),
         attempts=row["attempts"],

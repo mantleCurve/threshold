@@ -258,7 +258,7 @@ def read_token(token: str) -> str | None:
 
 # The generic message shown for every login failure. Deliberately identical for
 # "no such user" and "wrong password" — see the module docstring.
-LOGIN_FAILED_MESSAGE = "Incorrect username or password."
+LOGIN_FAILED_MESSAGE = "Incorrect email or password."
 
 
 class AuthError(Exception):
@@ -318,8 +318,8 @@ def register(username: str, password: str, role: str = "user") -> store.UserReco
 _DUMMY_HASH, _DUMMY_SALT = hash_password(secrets.token_hex(16))
 
 
-def verify_login(username: str, password: str) -> store.UserRecord:
-    """Authenticate a username/password pair.
+def verify_login(identifier: str, password: str) -> store.UserRecord:
+    """Authenticate an email/password pair, with demo-username compatibility.
 
     Args:
         username: As typed; matched case-insensitively by the store.
@@ -332,7 +332,8 @@ def verify_login(username: str, password: str) -> store.UserRecord:
         AuthError: Always with `LOGIN_FAILED_MESSAGE`, whether the account does
             not exist or the password is wrong.
     """
-    user = store.get_user_by_username(username.strip())
+    identifier = identifier.strip()
+    user = store.get_user_by_email(identifier) or store.get_user_by_username(identifier)
     if user is None:
         # Burn an equivalent scrypt hash so a missing account takes the same
         # ~100ms as a real one. Without this the response time alone tells an
