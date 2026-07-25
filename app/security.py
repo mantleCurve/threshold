@@ -46,6 +46,20 @@ _LIMITS: dict[str, tuple[int, int]] = {
     "/api/auth/register": (5, 300),   # 5 new accounts per 5 minutes per IP
     "/api/contact": (5, 300),         # 5 messages per 5 minutes per IP
     "/api/account/delete": (5, 60),
+    # Server-side speech synthesis. Listed for a different reason from the rest:
+    # it is not an abuse target, it is a BILLING one — every call is a paid
+    # request to the speech provider, and a signed-in client looping it is an
+    # invoice rather than an outage. 30/minute is far above any human reading
+    # pace and far below a runaway loop.
+    #
+    # Safe to limit even though the app speaks during an emergency, because a
+    # throttled response degrades to the browser's own speechSynthesis in the
+    # client (see `speak()` in web/js/app.js and app/routes/voice.py). Nobody is
+    # left in silence, which is the test every entry in this table has to pass.
+    # Cloning is limited harder: it is a slow, expensive upload and no supporter
+    # legitimately builds four voice models in five minutes.
+    "/api/voice/speak": (30, 60),
+    "/api/voice/clone": (3, 300),
 }
 
 # client key -> deque of request timestamps, oldest first.

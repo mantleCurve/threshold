@@ -74,6 +74,23 @@ async def post_account_delete(request: Request) -> dict:
     Immediate and total: no soft-delete, no thirty-day tombstone, no recovery
     window. A person who cannot leave cleanly was never safe being honest with us
     in the first place, and a retained shadow copy would make this policy a lie.
+
+    FOUR PLACES, because /data-deletion names four things and the page has to be
+    true. Deleting the database rows alone left the two most sensitive artefacts
+    behind:
+
+      1. Database — profile, ladder, contacts, tolerance events, event log,
+         caregiver links, and the user's own Memory Vault clips (`store`).
+      2. Disk cache — cached generations produced for this account, including a
+         911 script containing their home address and door entry code. The cache
+         is keyed by a prompt hash, so an owner index is what makes this findable
+         at all.
+      3. Live in-memory state — the ladder cursor and any open SSE listener
+         tagged with this account. A stream left attached to a deleted user would
+         keep receiving their own events, and the tier cursor would survive the
+         records behind it.
+      4. The session cookie — cleared on the response, so the browser is not left
+         holding a signed token naming an account that no longer exists.
     """
     try:
         from app import auth
@@ -85,12 +102,40 @@ async def post_account_delete(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="sign in first")
 
-    # Clear the live ladder cursor too, so no in-memory trace of the session outlives
-    # the deletion of the records behind it.
-    _tiers.pop(user.id, None)
-    store.delete_user_data(user.id)
+    # Read the cache keys BEFORE the rows go: `delete_user_data` removes the
+    # ownership index, after which the files are unreachable orphans.
+    from app import genai
 
-    return {"ok": True}
+    cache_keys = store.cache_keys_exclusively_owned_by(user.id)
+
+    counts = store.delete_user_data(user.id)
+
+    removed = 0
+    for key in cache_keys:
+        if genai.cache_delete(key):
+            removed += 1
+
+    # Live state, both halves. The cursor and the listener list are the app's only
+    # in-memory trace of a person.
+    _tiers.pop(user.id, None)
+    for listener in [l for l in _listeners if l.user_id == user.id]:
+        # Detached rather than closed: the generator owns its own lifecycle and
+        # removing it here means the next broadcast cannot reach it. The stream
+        # ends on its own when the client disconnects.
+        _listeners.remove(listener)
+
+    response = JSONResponse(
+        {
+            "ok": True,
+            # Reported so the confirmation screen can state what was actually
+            # removed rather than asserting it generically. A deletion the user
+            # cannot verify is one they have to take on trust, which is the exact
+            # thing this page exists to avoid asking of them.
+            "deleted": {**counts, "generation_cache_files": removed},
+        }
+    )
+    auth.clear_session_cookie(response)
+    return response
 
 
 # ---------------------------------------------------------------------------

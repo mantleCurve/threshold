@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<!--
+  REGISTER (CAREGIVER) — /register/caregiver
+  Surface: an exhausted family member. Usually a sister, a mother, a partner.
+  They are not here because they evaluated a product. They are here because
+  someone they love asked them to be, and handed them a six-character code.
+
+  WHY THIS IS A SEPARATE PAGE FROM /register
+  The two audiences arrive in completely different states. A member signs up for
+  themselves in a calm moment and needs to be told what they control. A caregiver
+  arrives frightened, often having already spent years being the person who
+  notices, and needs to be told what this will and will not ask of them. One
+  shared form with a role radio cannot speak to both, so it ends up speaking to
+  neither. The copy here is written for the second person.
+
+  WHY THE CODE FIELD IS THE FIRST FIELD
+  It is not a formality below the password — it is the whole consent model, made
+  visible at the front door. There is nowhere on this page, or anywhere in the
+  API, to type the NAME of the person you want to watch. The permission travels
+  outward from them to you. PRD P3.
+
+  Design system: web/css/README.md. Same four stylesheets, same order, same
+  .auth two-column shell as /register and /login. No new tokens, no new colour.
+-->
+<html lang="en" data-tier="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>You were invited — Threshold</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/light.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+<script src="/static/js/theme.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#signup">Skip to the form</a>
+
+<div class="auth">
+
+  <aside class="auth__aside">
+    <div class="stack">
+      <p class="wordmark">Thresh<span>o</span>ld</p>
+      <p class="lede" style="max-width: 30ch;">
+        Someone gave you a code. That means they decided, while thinking clearly,
+        that they wanted you to know.
+      </p>
+    </div>
+
+    <!-- WHAT THIS ASKS OF THEM. Stated before the account exists, because the
+         honest version of this offer is what makes it worth accepting. The
+         middle panel is the one that matters: this product's whole claim to a
+         caregiver is that it will not turn them into a monitor. -->
+    <div class="stack">
+      <h2 class="label">What this is, plainly</h2>
+      <ul class="stack" style="gap: var(--sp-4);">
+        <li class="panel">
+          <p>
+            You will not be watching them. You will be told when it matters, and
+            told what to do — including what not to say.
+          </p>
+        </li>
+        <li class="panel">
+          <p>
+            You see the rungs they chose to share, plus tiers 4 and 5, which
+            nobody can switch off. You never see what they said.
+          </p>
+        </li>
+        <li class="panel">
+          <p>
+            You cannot add yourself to anyone. Only a member can invite you, and
+            their code works once and expires in 24 hours.
+          </p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="hint">
+      Already have an account? <a href="/login" class="mark">Sign in</a><br>
+      In recovery yourself? <a href="/register" class="mark">Create a member account</a>
+    </p>
+  </aside>
+
+  <main class="auth__main" id="signup">
+    <div class="auth__form stack-loose">
+
+      <div class="stack-tight">
+        <h1 class="display" style="font-size: var(--step-4);">Someone asked you to be here</h1>
+        <p class="hint">
+          Enter the code they gave you, then pick a name and a password. It takes
+          about thirty seconds and you do not have to decide anything else tonight.
+        </p>
+      </div>
+
+      <form class="stack" id="register-caregiver-form" method="post" action="/api/auth/register" novalidate>
+
+        <!-- THE INVITE CODE. First field, deliberately. It is the consent
+             mechanism, not a formality — see the page comment. autocomplete is
+             "one-time-code" so a phone offers to paste it from a text message
+             rather than making an exhausted person retype it at midnight. -->
+        <div class="field">
+          <label for="rc-code">Their invite code</label>
+          <input class="input data" type="text" id="rc-code" name="invite_code"
+                 required autocapitalize="characters" autocomplete="one-time-code"
+                 spellcheck="false" maxlength="12" inputmode="text"
+                 style="letter-spacing: 0.25em; text-transform: uppercase;"
+                 aria-describedby="rc-code-hint">
+          <p class="hint" id="rc-code-hint">
+            Six characters, from their onboarding page. Case and dashes do not
+            matter. If it has expired, ask them for a new one — that is normal.
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="rc-username">Choose a username</label>
+          <input class="input" type="text" id="rc-username" name="username"
+                 autocomplete="username" required autocapitalize="none" spellcheck="false"
+                 aria-describedby="rc-username-hint">
+          <p class="hint" id="rc-username-hint">Anything you like. They will not see it.</p>
+        </div>
+
+        <div class="field">
+          <label for="rc-password">Choose a password</label>
+          <input class="input" type="password" id="rc-password" name="password"
+                 autocomplete="new-password" required minlength="6"
+                 aria-describedby="rc-password-hint">
+          <p class="hint" id="rc-password-hint">Six characters or more.</p>
+        </div>
+
+        <!-- Role is fixed, not chosen. This page exists precisely because the
+             visitor already knows which of the two they are. A hidden input
+             rather than a JS constant, so the form still posts the right thing
+             if scripting fails and the browser submits it natively. -->
+        <input type="hidden" name="role" value="caregiver">
+
+        <!-- A11Y: assertive, because a failed registration blocks the person
+             entirely and they may be here at 3am with no patience left. -->
+        <p class="error-text" id="register-caregiver-error" role="alert" hidden></p>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-caregiver-submit">
+          Create my account
+        </button>
+      </form>
+
+      <!-- The honest limit of what accepting this does. Placed after the button
+           rather than before it: it is reassurance for someone who has already
+           decided, not a hurdle in front of someone deciding. -->
+      <p class="hint">
+        You can leave at any time, and so can they — either of you ending the link
+        ends it immediately. There is no version of this they cannot see.
+      </p>
+
+      <div class="notice notice--warn">
+        <div>
+          <strong>Is someone overdosing right now?</strong>
+          <a href="/bystander" class="mark">Open bystander mode</a> — do not make an
+          account first. It needs no sign-in, ever.
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/auth.js" type="module"></script>
+</body>
+</html>

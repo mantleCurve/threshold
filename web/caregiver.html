@@ -37,10 +37,17 @@
   <aside class="rail">
     <p class="rail__brand">Thresh<span>o</span>ld</p>
 
-    <p class="label">Watching</p>
-    <p class="lede" style="font-size: var(--step-1); margin-top: calc(var(--sp-2) * -1);" id="watched-name">Sam</p>
+    <!-- COPY: "Your member" is the product's noun for the person in recovery,
+         used on every surface. Not "patient", "client" or "pupil" — this is not
+         a clinic, a caseload or a class. The internal role string stays "user";
+         this is display copy only. -->
+    <p class="label">Your member</p>
+    <p class="lede" style="font-size: var(--step-1); margin-top: calc(var(--sp-2) * -1);" id="watched-name">Your member</p>
 
-    <nav aria-label="Escalation ladder">
+    <!-- COPY: on the caregiver surface the ladder belongs to someone else, so
+         it is named as theirs. "Member's ladder", never "patient's" — the noun
+         is a membership, not a diagnosis. -->
+    <nav aria-label="Member's escalation ladder">
       <ol class="ladder" id="ladder">
         <li class="ladder__step" data-tier-step="0" aria-current="step">
           <span class="ladder__dot" aria-hidden="true"></span>
@@ -78,7 +85,7 @@
     <div class="rail__foot">
       <nav class="nav" aria-label="Sections" data-chrome>
         <a href="/caregiver" aria-current="page">Alert</a>
-        <a href="/ladder">Event log</a>
+        <a href="/ladder">Member's ladder</a>
         <a href="/bystander">Bystander mode</a>
       </nav>
       <div class="row" data-chrome>
@@ -106,7 +113,7 @@
       nothing about what page they are on. So the tier word keeps its visual
       role and this carries the semantic one.
     -->
-    <h1 class="visually-hidden">Caregiver alert — Sam's current status</h1>
+    <h1 class="visually-hidden">Caregiver alert — your member's current status</h1>
 
     <!-- ---------------------------------------------------------------- 1 -
          THE ALERT. Tier word first, at display size, in the tier colour — a
@@ -130,7 +137,10 @@
              a 911 button would render calm teal at tier 0. This one is always
              red. It is an <a href="tel:"> so it works with no JS. -->
         <a class="btn btn--emergency" href="tel:911" id="alert-call-911">Call 911</a>
-        <button type="button" class="btn" id="alert-call-user">Call Sam</button>
+        <!-- Label is replaced with the real name by caregiver.js once
+             /api/state resolves. "Call your member" is the pre-load copy, so a
+             caregiver on a slow connection never reads someone else's name. -->
+        <button type="button" class="btn" id="alert-call-user">Call your member</button>
         <button type="button" class="btn btn--quiet" id="brief-refresh">Regenerate summary</button>
       </div>
     </section>
@@ -198,32 +208,33 @@
          all, so it is on the page rather than in a settings screen.
          -------------------------------------------------------------------->
     <section class="stack" aria-labelledby="see-h">
-      <h2 class="label" id="see-h">Exactly what you can and cannot see about Sam</h2>
+      <h2 class="label" id="see-h">Exactly what you can and cannot see about your member</h2>
       <div class="visibility">
         <div class="can">
           <h3 class="label" style="color: var(--accent-0);">You can see</h3>
           <ul class="stack-tight" id="can-see">
-            <li>The tier, whenever it is one Sam has shared with you.</li>
-            <li>Tier 4 and tier 5, always — Sam cannot switch these off, and knows that.</li>
+            <li>The tier, whenever it is one they have shared with you.</li>
+            <li>Tier 4 and tier 5, always — nobody can switch these off, and they know that.</li>
             <li>The reason the tier changed, in the system's own words.</li>
             <li>What the system did in response, and when.</li>
-            <li>Sam's address and entry code, at tier 4 and above only.</li>
+            <li>Their address and entry code, at tier 4 and above only.</li>
           </ul>
         </div>
         <div class="cannot">
           <h3 class="label">You cannot see</h3>
           <ul class="stack-tight" id="cannot-see">
-            <li>Anything Sam said. Transcripts are never shared with you.</li>
+            <li>Anything they said. Transcripts are never shared with you.</li>
             <li>Which substances were involved.</li>
-            <li>Tier 2 and tier 3, unless Sam has turned those on for you.</li>
+            <li>Tier 2 and tier 3, unless they have turned those on for you.</li>
             <li>Location, at any tier below 4.</li>
-            <li>Anything at all after Sam stands down — the alert closes with it.</li>
+            <li>Anything at all after they stand down — the alert closes with it.</li>
           </ul>
         </div>
       </div>
       <p class="hint">
-        Sam sets these on their own ladder page and can see this same list.
-        There is no second view of Sam that you are not being shown.
+        Your member sets these on their own ladder page and sees this same list.
+        There is no second view of them that you are not being shown — and they
+        invited you here, which is the only way you could be.
       </p>
     </section>
 

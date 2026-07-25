@@ -1,17 +1,21 @@
 /* ============================================================================
    THRESHOLD — auth.js
-   Behaviour for /login and /register.
+   Behaviour for /login, /register and /register/caregiver.
 
    WHAT THIS FILE DOES
-     Submits login.html#login-form and register.html#register-form to the auth
-     API in CONTRACT.md, surfaces the SERVER'S OWN error text inline, and
-     redirects to the surface that matches the account's role on success. It
-     also wires the one-tap "Sign in as Sam" / "Sign in as Sarah" buttons that
-     CONTRACT ground rule 4 requires.
+     Submits the three auth forms to the API in CONTRACT.md, surfaces the
+     SERVER'S OWN error text inline, and redirects to the surface that matches
+     the account's role on success. It also wires the one-tap "Sign in as Sam" /
+     "Sign in as Sarah" buttons that CONTRACT ground rule 4 requires.
 
-     Both pages share this file because the two forms are the same interaction
-     with a different endpoint. One file, two `if (form) …` guards — a second
-     module would be two places to get session handling subtly different in.
+     All three pages share this file because they are the same interaction with
+     different payloads. One file, three `if (form) …` guards — separate modules
+     would be three places to get session handling subtly different in.
+
+     The caregiver registration path additionally carries an invite code. See
+     `initRegisterCaregiver` for why that field, and the absence of any field
+     naming the person to watch, is the product's consent model rather than a
+     convenience.
 
    WHAT THIS FILE DELIBERATELY DOES NOT DO
      It does not validate credentials locally beyond the browser's own required
@@ -282,6 +286,94 @@ function initRegister() {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Register — caregiver                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Wire register-caregiver.html.
+ *
+ * Separate from `initRegister` because the two pages are genuinely different
+ * interactions, not the same form with a different label: this one carries an
+ * invite code, has no role choice to read, and must explain a code failure in
+ * terms an exhausted person can act on.
+ *
+ * THE CODE IS THE CONSENT MECHANISM (PRD P3). Note what this function cannot
+ * send: there is no field anywhere for the username of the person to watch. The
+ * server accepts a code and nothing else, so a caregiver account can only ever
+ * attach to whoever generated that code. Nobody can add themselves to a person
+ * who did not invite them — that is enforced by the shape of the request, not by
+ * a promise in a policy.
+ *
+ * The code is normalised to uppercase before sending. The server normalises too;
+ * doing it here as well means the field the person is looking at matches what
+ * was actually submitted, so a rejection is never mysterious.
+ */
+function initRegisterCaregiver() {
+  const form = document.getElementById('register-caregiver-form');
+  if (!form) return;
+
+  const submit = document.getElementById('register-caregiver-submit');
+  const codeInput = form.querySelector('#rc-code');
+
+  // Keep the visible value canonical as they type. Purely cosmetic — the server
+  // normalises regardless — but it makes a mistyped code obvious on the screen
+  // rather than only in the error message.
+  codeInput?.addEventListener('input', () => {
+    const start = codeInput.selectionStart;
+    codeInput.value = codeInput.value.toUpperCase();
+    codeInput.setSelectionRange?.(start, start);
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showError('register-caregiver-error', '');
+
+    const code = codeInput?.value.trim().toUpperCase() || '';
+    const username = form.querySelector('#rc-username')?.value.trim() || '';
+    const password = form.querySelector('#rc-password')?.value || '';
+
+    if (!code) {
+      showError('register-caregiver-error',
+        'Enter the code the person who invited you gave you. Without it there is ' +
+        'nobody for this account to be connected to.');
+      return;
+    }
+
+    const idle = submit ? submit.textContent : '';
+    setPending(submit, true, idle);
+
+    const res = await postJson('/api/auth/register', {
+      username,
+      password,
+      role: 'caregiver',
+      invite_code: code,
+    });
+
+    if (res.ok) {
+      // The account exists, but the link may not: the server reports
+      // `linked: false` when the code was valid at the check and spent in the
+      // moment between. Say so instead of dropping them onto an empty caregiver
+      // page with no explanation of why it is empty.
+      if (res.data.linked === false) {
+        setPending(submit, false, idle);
+        showError('register-caregiver-error',
+          `${res.data.link_error || 'The code could not be used.'} ` +
+          'Your account was created and you are signed in — ask for a new code ' +
+          'and enter it from the caregiver page.');
+        return;
+      }
+      redirectForRole('caregiver');
+      return;
+    }
+
+    setPending(submit, false, idle);
+    showError('register-caregiver-error', errorMessage(res));
+    document.getElementById('register-caregiver-error')?.setAttribute('tabindex', '-1');
+    document.getElementById('register-caregiver-error')?.focus?.();
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* AI status badge                                                             */
 /* -------------------------------------------------------------------------- */
 
@@ -320,6 +412,7 @@ async function initAiStatus() {
 function boot() {
   initLogin();
   initRegister();
+  initRegisterCaregiver();
   initAiStatus();
 }
 

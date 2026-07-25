@@ -998,3 +998,67 @@ class TestPurity:
             evaluate(Tier.ACTIVE_USE, silent_seconds=99, still=True).tier,
         }
         assert reached == set(Tier)
+
+
+# ---------------------------------------------------------------------------
+# Overdose descriptions in plain speech
+# ---------------------------------------------------------------------------
+# Added after review found that the table caught clinical phrasings but missed
+# the words people actually use. "she won't wake up" — the single most likely
+# sentence a frightened bystander says out loud — triaged to Baseline.
+import pytest
+
+from app import triage as _triage
+from app.models import Tier as _Tier
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "she wont wake up",
+        "I can't wake him up",
+        "he is unresponsive",
+        "she's not responding",
+        "he passed out",
+        "she is unconscious",
+        "he is nodding out",
+        "he nodded off and won't wake up",
+        "his lips are blue",
+        "she's turning grey",
+        "he is gurgling",
+        "she's gasping",
+    ],
+)
+def test_plain_speech_overdose_descriptions_reach_emergency(utterance):
+    """These are the words a bystander uses. Missing one costs a life.
+
+    Every phrase here describes an opioid overdose in progress — sedation,
+    unrousability, cyanosis, or agonal breathing. None of them contain the word
+    "overdose", which is exactly why they need their own rows.
+    """
+    result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
+    assert result.tier == _Tier.EMERGENCY, f"{utterance!r} did not reach Tier 4"
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "I passed out at the party last year",   # autobiography, not an event
+        "she wont wake up early for work",       # a complaint about a schedule
+        "the sky turned blue",                   # weather
+        "my shirt is blue",                      # clothing
+        "I was choking on my drink",             # ordinary, self-resolving
+        "I nodded in agreement",                 # agreement, not sedation
+        "I snore at night",                      # sleep, not agonal breathing
+        "I woke up fine",                        # the opposite of the signal
+    ],
+)
+def test_ordinary_speech_does_not_trigger_an_emergency(utterance):
+    """The precision half. Every one of these was a real false positive.
+
+    A false Tier 4 wakes a family member at 3am over nothing. Do that twice and
+    the user stops talking to the app — and a user who has gone quiet is the
+    failure mode this product exists to prevent (PRD §12, concealment risk).
+    """
+    result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
+    assert result.tier < _Tier.EMERGENCY, f"{utterance!r} falsely escalated"

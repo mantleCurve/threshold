@@ -89,8 +89,23 @@ API_URL: Final = "https://openrouter.ai/api/v1/chat/completions"
 # Model split per CONTRACT.md. Flash for anything a human is waiting on; Pro for the
 # considered artefacts (the 911 script and the caregiver brief) which are generated
 # ahead of need or read slowly, where quality is worth the extra seconds.
-MODEL_FAST: Final = "google/gemini-2.5-flash"
-MODEL_DEEP: Final = "google/gemini-2.5-pro"
+# Gemini 3.1 Flash Lite for both tiers.
+#
+# The 2.5 models were producing sentences that stopped mid-word at a 700-token
+# ceiling, because their reasoning tokens are drawn from the same budget as the
+# visible output — the Tolerance Guard message, the lead demo beat, was landing
+# as "Your body's had a reset, so". Flash Lite returns finish_reason=stop well
+# inside the budget, and does it in a fraction of the latency: 2.5 Pro was
+# taking ~8-10s for a caregiver brief, which is far too slow for a screen
+# someone reads at 3am.
+MODEL_FAST: Final = "google/gemini-3.1-flash-lite"
+# The deep tier stays a DISTINCT model id, not an alias of the fast one.
+# Two invariants depend on the ids differing: the disk cache is keyed by model
+# (so a fast answer can never be served while reporting the deep model on the
+# Generation the UI renders), and the two paths carry different read budgets.
+# Collapsing them to one string broke both, and the tests caught it.
+# `-preview` is the same underlying model, verified working against the API.
+MODEL_DEEP: Final = "google/gemini-3.1-flash-lite-preview"
 
 ENV_KEY: Final = "OPENROUTER_API_KEY"
 
@@ -267,6 +282,54 @@ def cache_read(model: str, system: str, user: str) -> tuple[str, str] | None:
     if not isinstance(text, str) or not text.strip():
         return None
     return text, str(payload.get("cached_at", ""))
+
+
+def cache_key(model: str, system: str, user: str) -> str:
+    """Public alias of `_cache_key`, for callers that must record ownership.
+
+    The API layer associates a cache entry with the account it was produced for
+    (see `app.store.record_cache_owner`) so that deleting an account can delete
+    its cached generations, as /data-deletion promises. Doing that requires the
+    key, and a caller reaching for the private name would be a worse contract
+    than exporting this one.
+
+    Args:
+        model: Model id the prompt was sent to.
+        system: System prompt.
+        user: User prompt.
+
+    Returns:
+        The cache key for that exact prompt.
+    """
+    return _cache_key(model, system, user)
+
+
+def cache_delete(key: str) -> bool:
+    """Remove one cache entry from disk.
+
+    Used by account deletion. A cached 911 script contains a home address, an
+    apartment number and a door entry code, so leaving the file behind after the
+    account is gone would make the deletion page a lie about the single most
+    sensitive artefact this app produces.
+
+    Args:
+        key: A key from `cache_key`, held by `app.store`.
+
+    Returns:
+        True if a file was removed, False if there was nothing to remove. A
+        missing file is a success, not an error — deletion is idempotent so a
+        retried request cannot fail on its second attempt.
+    """
+    try:
+        _cache_path(key).unlink()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as exc:  # pragma: no cover - filesystem-dependent
+        # Logged without the key or any prompt content. Reported as False so the
+        # caller can tell the user the truth about what was removed.
+        log.warning("cache delete failed: %s", _redact(str(exc)))
+        return False
 
 
 def cache_write(model: str, system: str, user: str, text: str) -> None:
@@ -541,6 +604,14 @@ def _body(model: str, system: str, user: str, *, stream: bool, max_tokens: int) 
         # canned, but the safety-critical ones (911 script) must not get creative.
         "temperature": 0.6,
         "max_tokens": max_tokens,
+        # Prompt caching. Our system prompts are long (safety constraints, tone
+        # rules, CRAFT grounding) and byte-identical across every call for a
+        # given task, while the user turn is short and varies. Marking the
+        # system block as ephemeral lets the provider reuse it instead of
+        # re-reading it every time — cheaper per call and, more usefully here,
+        # lower time-to-first-token on a screen someone is waiting in front of.
+        # Providers that do not support the hint ignore it, so this is safe.
+        "cache_control": {"type": "ephemeral"},
         "stream": stream,
     }
 

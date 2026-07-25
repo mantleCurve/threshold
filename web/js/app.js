@@ -427,10 +427,48 @@ async function requestWakeLock() {
  * region lives in the takeover, so writing to it from an ordinary Tier 0 reply
  * would push text into a hidden emergency surface rather than the transcript
  * the user is actually reading.
+ *
+ * THE VOICE IS SYNTHETIC AND IS ONLY EVER THE APP'S OWN.
+ * The member picks it in onboarding; it is read from localStorage below. What
+ * this function speaks is always Threshold speaking as Threshold.
+ *
+ * MEMORY VAULT CLIPS NEVER COME THROUGH HERE. Those are real recordings of real
+ * people, played as recorded, and no code path routes one into
+ * speechSynthesis. No voice offered anywhere in this product imitates a
+ * specific caregiver. PRD §7.2 declined voice cloning deliberately: consent
+ * obtained in calm is spent in crisis, and a "this is synthesised" label does no
+ * cognitive work at all on someone intoxicated or panicking. The only design
+ * that holds at tier 4 is the one where a voice you recognise as your sister's
+ * IS your sister's. If you are ever tempted to add cloning here, that is the
+ * paragraph to read again.
  */
+
+/** localStorage key for the app-voice preference. Must match onboarding.js. */
+const VOICE_KEY = 'threshold.voice';
+
+/**
+ * The member's chosen synthetic voice, or null for the browser default.
+ *
+ * Resolved at CALL time rather than cached at load: getVoices() is empty until
+ * the engine warms up, so a value captured on DOMContentLoaded would pin the
+ * default for the whole session. Falls back silently when the stored voice is no
+ * longer installed — an OS update removing a voice must not make the app mute.
+ *
+ * @returns {SpeechSynthesisVoice|null}
+ */
+function preferredVoice() {
+  let uri = '';
+  try { uri = localStorage.getItem(VOICE_KEY) || ''; } catch { return null; }
+  if (!uri) return null;
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  return voices.find((v) => v.voiceURI === uri) || null;
+}
+
 function speak(text, { loud = false } = {}) {
   if (!('speechSynthesis' in window) || !text) return;
   const u = new SpeechSynthesisUtterance(text);
+  const voice = preferredVoice();
+  if (voice) u.voice = voice;
   u.rate = 0.9;
   u.pitch = 0.95;
   u.volume = loud ? 1 : 0.9;

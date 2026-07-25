@@ -254,10 +254,79 @@ SIGNALS: list[Signal] = [
         negatable=False,
         example="he's not breathing",
     ),
+    # ---- Tier 4: how an overdose is actually described out loud ----------
+    # Added after review: the original table caught the clinical phrasings but
+    # missed the words people actually use, so "she won't wake up" and "he's
+    # nodding out" — both descriptions of an overdose in progress — triaged to
+    # Baseline. That is the exact sentence a frightened bystander says into a
+    # phone, and it was returning nothing.
+    #
+    # These are all THIRD-PERSON capable on purpose: at Tier 4 the speaker is
+    # frequently not the person in danger.
+    Signal(
+        label="unrousable",
+        tier=Tier.EMERGENCY,
+        pattern=(
+            # "wake up" only counts when it is about rousing a person NOW.
+            # "she won't wake up early for work" is a complaint about a
+            # schedule; the trailing qualifier excludes it.
+            r"\b(wo'?n'?t|will not|can'?t|cannot|not)\s+wake\s+(up|him|her|them)\b"
+            r"(?!\s+(early|late|before|until|on|for|in|at|tomorrow|today))"
+            r"|\bunresponsive\b|\bnot\s+respond(ing|s)?\b"
+            # Present sense only: "he passed out" / "passing out" is happening.
+            # "I passed out at the party last year" is a story being told, and
+            # escalating on it is the over-alerting that teaches people to stop
+            # talking to the app (PRD §12).
+            r"|\bpass(ed|ing)\s+out\b(?!.*\b(last|ago|years?|months?|weeks?|"
+            r"when i was|back then|once)\b)"
+            r"|\bunconscious\b"
+        ),
+        negatable=False,   # the phrase is itself a negation
+        example="she won't wake up",
+    ),
+    Signal(
+        label="nodding out",
+        tier=Tier.EMERGENCY,
+        # "Nodding" is the street description of opioid-induced sedation, and
+        # the step before respiratory arrest. Bounded to the phrasal forms so
+        # it cannot fire on nodding one's head in agreement.
+        pattern=r"\bnodd?(ing|ed)\s+(out|off)\b|\bnodding\b(?=\s|$)",
+        example="he's nodding out",
+    ),
+    Signal(
+        label="cyanosis",
+        tier=Tier.EMERGENCY,
+        # Blue or grey lips and skin mean oxygen has already been low for some
+        # time. This is a late sign and must never be filed below emergency.
+        pattern=(
+            # Anchored to a BODY PART in both halves. The original matched any
+            # subject turning blue, so "the sky turned blue" dispatched an
+            # ambulance. Cyanosis is only meaningful on a person.
+            r"\b(lips?|face|skin|fingers?|nails?|hands?|they|he|she)"
+            r"(?:'?s|'?re)?\s+"
+            r"(is|are|was|were|look(s|ed|ing)?|went|turn(ed|ing)?|going)?\s*"
+            r"(blue|grey|gray|purple|ashen)\b"
+        ),
+        example="his lips are blue",
+    ),
+    Signal(
+        label="agonal breathing",
+        tier=Tier.EMERGENCY,
+        # Gurgling, snoring, or gasping in someone who cannot be roused is
+        # agonal respiration — commonly mistaken for sleep, which is precisely
+        # why it belongs in this table.
+        # "choking" excludes the ordinary sense — choking ON something is a
+        # different (and usually self-resolving) event from agonal respiration.
+        pattern=r"\b(gurgl(e|ing)|snor(e|ing)\s+(weird|strange|funny|loudly)|"
+                r"gasping|rattling)\b"
+                r"|\bchoking\b(?!\s+on\b)",
+        example="he's gurgling",
+    ),
     Signal(
         label="overdose disclosure",
         tier=Tier.EMERGENCY,
-        pattern=r"\b(overdosing|overdosed|od'?ing|took too much|too much of it)\b",
+        pattern=r"\b(overdosing|overdosed|od'?ing|took too much|took too many|"
+                r"too much of it)\b",
         example="I think I'm overdosing",
     ),
     Signal(

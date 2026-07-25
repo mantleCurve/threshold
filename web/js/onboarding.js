@@ -392,6 +392,220 @@ function renderContacts(contacts) {
 /* Controls                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/* -------------------------------------------------------------------------- */
+/* Invite codes — consent as structure (PRD P3)                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Wire the "Invite someone to support you" section.
+ *
+ * WHY THIS CONTROL IS THE ANSWER TO "ISN'T THIS SURVEILLANCE?"
+ *
+ * A caregiver cannot search for a member, cannot type a member's username
+ * anywhere, and cannot be attached to one by us. The ONLY way a caregiver link
+ * comes into existence is that the member pressed this button and handed the
+ * resulting code over themselves. The permission travels outward from the
+ * watched person; it is never requested inward toward them. There is no API
+ * parameter that would let it work the other way — see app/store.py's `invites`
+ * table comment and POST /api/invite.
+ *
+ * The code is displayed here and sent nowhere. Reading it out, or turning the
+ * phone around, IS the consent act, and it belongs to the member rather than to
+ * a mail server that would put a live permission in an inbox forever.
+ *
+ * Single use and a 24h expiry are enforced server-side, not here. This function
+ * only reports them, because a client-side expiry check is decoration.
+ */
+function initInvite() {
+  const btn = document.getElementById('make-invite');
+  if (!btn) return;
+
+  const result = document.getElementById('invite-result');
+  const codeEl = document.getElementById('invite-code');
+  const expiryEl = document.getElementById('invite-expiry');
+  const errEl = document.getElementById('invite-error');
+
+  /** Show a failure in the section's role="alert" region. Empty string clears. */
+  const inviteError = (text) => {
+    if (!errEl) return;
+    errEl.textContent = text || '';
+    errEl.hidden = !text;
+  };
+
+  btn.addEventListener('click', async () => {
+    inviteError('');
+    const idle = btn.textContent;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = 'Generating…';
+
+    const res = await request('/api/invite', { method: 'POST' });
+
+    btn.disabled = false;
+    btn.setAttribute('aria-busy', 'false');
+    btn.textContent = idle;
+
+    if (!res.ok) {
+      // Never invent a reason. The server's `detail` was written for this
+      // screen; we only compose copy when nothing reached the server at all.
+      inviteError(res.status === 0
+        ? 'Could not reach the server, so no code was created. Nothing changed.'
+        : (res.data?.detail || `Could not create a code (${res.status}).`));
+      return;
+    }
+
+    if (codeEl) codeEl.textContent = res.data.code || '';
+    if (expiryEl) {
+      // Rendered from the server's own expiry rather than computed here, so the
+      // time shown is the time actually enforced.
+      const when = res.data.expires_at ? new Date(res.data.expires_at) : null;
+      expiryEl.textContent = when && !isNaN(when)
+        ? `Works once. Stops working at ${when.toLocaleString()}.`
+        : `Works once. Expires in ${res.data.expires_in_hours ?? 24} hours.`;
+    }
+    if (result) result.hidden = false;
+
+    // Move focus to the code. A keyboard or screen-reader user pressing the
+    // button must land on the thing it produced, not stay on the button.
+    codeEl?.setAttribute('tabindex', '-1');
+    codeEl?.focus?.();
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Voice preference                                                            */
+/* -------------------------------------------------------------------------- */
+
+/*
+  THE CONSTRAINT THIS SECTION EXISTS UNDER, STATED BEFORE THE CODE.
+
+  This picker selects a SYNTHETIC voice for THE APP'S OWN SPEECH — the check-in
+  replies, the grounding steps, the 911 script read aloud. That is its entire
+  scope.
+
+  Memory Vault clips are REAL RECORDINGS OF REAL PEOPLE and are NEVER
+  synthesised. Nothing in this file, and nothing anywhere in the product, routes
+  a vault clip through speechSynthesis. No option offered here imitates a
+  specific caregiver, and none ever will.
+
+  PRD §7.2 declined voice cloning deliberately, and the reasoning is worth
+  keeping next to the code so nobody "improves" this into a cloning feature:
+  consent obtained in calm is spent in crisis. A person who agreed months ago
+  that their sister's voice could be synthesised is not the person hearing it at
+  tier 4, and a disclosure label does no cognitive work whatsoever on someone
+  intoxicated or panicking. The only design that survives that moment is the one
+  where a voice you recognise as your sister's IS your sister's.
+
+  STORED IN localStorage, NEVER ON THE SERVER. A voice preference is not health
+  data and has no business in a database that also knows what someone uses. It
+  also means the choice survives with no account and no network.
+*/
+
+/** localStorage key. Namespaced like the theme preference in theme.js. */
+const VOICE_KEY = 'threshold.voice';
+
+/**
+ * Populate the voice picker from the browser's installed voices.
+ *
+ * getVoices() is asynchronous in most browsers on first call and returns an
+ * empty array until the engine has loaded — hence the `voiceschanged` listener.
+ * Without it the select renders empty on a cold page load and the feature looks
+ * broken, which is the single most common way this API is mis-wired.
+ *
+ * @param {HTMLSelectElement} select
+ */
+function fillVoices(select) {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  const saved = (() => {
+    try { return localStorage.getItem(VOICE_KEY) || ''; } catch { return ''; }
+  })();
+
+  // Keep the "System default" option and replace the rest.
+  while (select.options.length > 1) select.remove(1);
+
+  voices.forEach((v) => {
+    const opt = document.createElement('option');
+    // voiceURI is the stable identifier; `name` alone collides across engines.
+    opt.value = v.voiceURI;
+    opt.textContent = `${v.name} (${v.lang})${v.default ? ' — browser default' : ''}`;
+    select.appendChild(opt);
+  });
+
+  // Reselect the stored choice if that voice is still installed. If it is not —
+  // an OS update removed it, or this is a different device — we fall back to
+  // "System default" silently rather than showing a selection that will not play.
+  if (saved && Array.prototype.some.call(select.options, (o) => o.value === saved)) {
+    select.value = saved;
+  }
+}
+
+/**
+ * Wire the app-voice picker and its Preview button.
+ *
+ * Saves on change, unlike the ladder switches on this page. That difference is
+ * deliberate: the ladder toggles are privacy promises and must be saved
+ * explicitly, while a voice preference affects nobody but the listener, never
+ * leaves the device, and is trivially reversible.
+ */
+function initVoicePicker() {
+  const select = document.getElementById('voice-pick');
+  if (!select) return;
+
+  const status = document.getElementById('voice-status');
+  const preview = document.getElementById('voice-preview');
+
+  if (!('speechSynthesis' in window)) {
+    // Say so rather than offering a dead control. An empty picker with a
+    // Preview button that does nothing is worse than an honest sentence.
+    select.disabled = true;
+    if (preview) preview.disabled = true;
+    if (status) status.textContent = 'This browser has no speech engine, so Threshold will not speak aloud.';
+    return;
+  }
+
+  fillVoices(select);
+  // Fires when the engine finishes loading voices, and again if the OS set
+  // changes mid-session.
+  window.speechSynthesis.addEventListener?.('voiceschanged', () => fillVoices(select));
+
+  select.addEventListener('change', () => {
+    try {
+      localStorage.setItem(VOICE_KEY, select.value);
+      if (status) {
+        status.textContent = select.value
+          ? 'Saved on this device only. Press Preview to hear it.'
+          : 'Using the system default. Saved on this device only.';
+      }
+    } catch {
+      // Private browsing can refuse writes. Say so — a preference that silently
+      // did not save is a control the person cannot trust.
+      if (status) status.textContent = 'Could not save on this device. The choice lasts until you close the tab.';
+    }
+  });
+
+  preview?.addEventListener('click', () => {
+    // Cancel anything queued first, so repeated presses do not stack up a
+    // backlog the person then has to sit through.
+    window.speechSynthesis.cancel();
+
+    const u = new SpeechSynthesisUtterance(
+      // The preview line says what the voice IS. Someone auditioning voices at
+      // this moment is exactly the person who should hear the distinction
+      // stated, and it doubles as a natural-length sample.
+      'This is Threshold. This voice is synthetic. The recordings in your ' +
+      'Memory Vault are real people, and they are never synthesised.'
+    );
+    const chosen = (window.speechSynthesis.getVoices() || [])
+      .find((v) => v.voiceURI === select.value);
+    if (chosen) u.voice = chosen;
+    // Same rate and pitch as speak() in app.js, so the preview is honest about
+    // how it will actually sound in use.
+    u.rate = 0.9;
+    u.pitch = 0.95;
+    window.speechSynthesis.speak(u);
+  });
+}
+
 /**
  * Wire the page's buttons and the change feedback on the toggles.
  *
@@ -445,6 +659,12 @@ function initControls() {
 async function boot() {
   lockNonNegotiableTiers();
   initControls();
+  // Both are independent of /api/state: the invite button talks to its own
+  // endpoint, and the voice picker never touches the network at all. Wiring
+  // them before the fetch means they still work on a page whose ladder failed
+  // to load.
+  initInvite();
+  initVoicePicker();
 
   const res = await request('/api/state', { method: 'GET' });
   if (!res.ok) {

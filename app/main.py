@@ -36,9 +36,22 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import store, triage
+from app import deps, store, triage
 from app.security import SecurityMiddleware
-from app.models import Event, Tier, TriageResult
+from app.models import Contact, Event, Tier, TriageResult, UserProfile
+
+# The authorization primitives live in `app.deps` so that this module, the routers
+# under `app.routes`, and any future surface all make the SAME privacy decision.
+# A boundary that is reimplemented per file is not a boundary; it is a set of
+# opinions that will disagree under maintenance.
+from app.deps import (
+    Listener,
+    _generate,
+    authenticated_user_id,
+    events_for_wire,
+    resolve_subject,
+    visible_to,
+)
 
 log = logging.getLogger("threshold")
 
@@ -54,11 +67,16 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 # durable fact about them. Persisting it would mean a server restart could leave a
 # user pinned at Tier 4 forever, or — worse — silently resurrect a stale emergency.
 # The append-only Event log in SQLite is the durable record; this is the live cursor.
-_tiers: dict[str, Tier] = {}
-
-# Connected SSE listeners, so a tier change on the user's screen reaches the
-# caregiver's screen without polling. One queue per connected client.
-_listeners: list[asyncio.Queue] = []
+#
+# BOUND TO `app.deps`, NOT REDECLARED. Both objects are aliases of the ones in
+# that module, so this file and every router under `app.routes` read and write
+# ONE dict and ONE listener list. Declaring fresh containers here (which is what
+# this file used to do) gave the app a split brain: a tier set through a route in
+# `app.routes` was invisible to a stream served from here, and — far worse — a
+# listener registered on one list could never be filtered by a broadcast walking
+# the other. Deletion clearing "the" live state would clear only one of two.
+_tiers = deps._tiers
+_listeners = deps._listeners
 
 
 def _now() -> datetime:
@@ -70,21 +88,66 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _now_naive() -> datetime:
+    """Naive local 'now', for the invite subsystem only.
+
+    Deliberately NOT `_now()`. Invite timestamps are stored by `app/store.py`
+    with a naive `datetime.now()` default, and Python refuses to compare a naive
+    datetime with an aware one — so passing UTC-aware time into an expiry check
+    would raise TypeError the first time a code was redeemed, rather than
+    failing a test. One clock per subsystem, matched at the boundary.
+
+    Kept separate rather than converting the store to aware time, because the
+    store's timestamps are already written naive throughout (events, consent)
+    and changing that is a migration, not a fix for this feature.
+    """
+    return datetime.now()
+
+
 def _current_tier(user_id: str) -> Tier:
     """Current live tier for a user, defaulting to Baseline for anyone unseen."""
     return _tiers.get(user_id, Tier.BASELINE)
 
 
 async def _broadcast(payload: dict) -> None:
-    """Push an event to every connected SSE client.
+    """Push a ladder event to the connected SSE clients ENTITLED to receive it.
+
+    Delegates the decision to `app.deps.visible_to`, which is the single
+    authorization predicate in the app. Filtering happens HERE, on the server,
+    before the payload is serialised — an unauthorised listener's socket never
+    carries the bytes at all.
+
+    This used to be an unconditional fan-out to every connected queue, with the
+    caregiver page dropping the events that were not about the person it was
+    watching. That meant one user's tier reasons, escalation prose and account
+    id were delivered to every listener on the deployment, including anonymous
+    ones, and "privacy" was a line of JavaScript that anyone reading the network
+    tab could ignore. Client-side filtering is a rendering preference; it is
+    never a privacy boundary.
+
+    Payloads with no `user_id` (the demo `reset` notice) are about the
+    deployment rather than about a person, and go to everyone.
 
     Uses put_nowait and tolerates failure: a slow or dead listener must never block a
     tier transition. In this product, delivery to a dashboard is strictly less
     important than the escalation itself continuing to run.
+
+    Args:
+        payload: The SSE payload. `user_id` names the subject and `tier` the
+            integer tier reached.
     """
-    for q in list(_listeners):
+    subject_id = payload.get("user_id")
+    # A ladder payload with a malformed tier is treated as Tier 5 so it still
+    # reaches a linked caregiver. Failing toward telling someone is right for a
+    # broken EMERGENCY and merely noisy for a broken calm event, and only one of
+    # those two mistakes can cost a life (PRD §4.2).
+    tier = Tier(payload["tier"]) if isinstance(payload.get("tier"), int) else Tier.UNRESPONSIVE
+
+    for listener in list(_listeners):
+        if subject_id is not None and not visible_to(listener.user_id, subject_id, tier):
+            continue
         try:
-            q.put_nowait(payload)
+            listener.queue.put_nowait(payload)
         except Exception:  # pragma: no cover - defensive; a full queue is not fatal
             pass
 
@@ -158,6 +221,14 @@ app.add_middleware(
     SecurityMiddleware,
     https=os.getenv("THRESHOLD_HTTPS", "").lower() in ("1", "true", "yes"),
 )
+
+# The consented supporter-voice surface. Included as a router rather than
+# inlined here because it is an optional, self-contained feature with its own
+# consent gate, and a reader auditing that gate should find the whole of it in
+# one file (app/routes/voice.py) rather than interleaved with the ladder core.
+from app.routes import voice as voice_routes  # noqa: E402  (after app exists)
+
+app.include_router(voice_routes.router)
 
 
 # ---------------------------------------------------------------------------
@@ -237,12 +308,24 @@ async def auth_register(body: dict = Body(...)) -> JSONResponse:
     Registration works end-to-end so an evaluator can make their own account and
     watch every surface generate from scratch, rather than only ever seeing seeded
     state.
+
+    INVITE CODES (role=caregiver only). A caregiver may pass `invite_code`, which
+    is redeemed as part of registration so they land on a working surface instead
+    of an empty one asking them to go and find a code. PRD P3: a caregiver can
+    only ever attach to a member who generated a code and handed it over — there
+    is no field on this endpoint that lets a caregiver name the account they want
+    to watch, and that absence is the consent guarantee.
+
+    The code is validated BEFORE the account is created and redeemed after. A bad
+    code therefore leaves no half-registered account behind; a good one cannot be
+    burned by a username collision that fails afterwards.
     """
     from app import auth
 
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     role = body.get("role") or "user"
+    invite_code = (body.get("invite_code") or "").strip()
 
     if len(username) < 2 or len(password) < 6:
         raise HTTPException(
@@ -252,6 +335,29 @@ async def auth_register(body: dict = Body(...)) -> JSONResponse:
     if role not in ("user", "caregiver"):
         raise HTTPException(status_code=400, detail="Unknown role.")
 
+    # An invite code on a member registration is meaningless — a member does not
+    # attach themselves to anyone. Refusing rather than ignoring it, because
+    # silently discarding it would let someone believe a link was made.
+    if invite_code and role != "caregiver":
+        raise HTTPException(
+            status_code=400,
+            detail="Invite codes are redeemed by caregivers, not by members.",
+        )
+
+    # Check the code is live BEFORE creating the account. Registering first and
+    # discovering the code was expired would leave an orphan caregiver account
+    # with no link and no obvious way to recover.
+    if invite_code:
+        pending = store.get_invite(invite_code)
+        if pending is None or pending.is_spent or pending.is_expired(_now_naive()):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "That invite code is not valid. Codes work once and last 24 "
+                    "hours — ask the person who invited you for a fresh one."
+                ),
+            )
+
     try:
         user = auth.register(username, password, role)
     except (ValueError, auth.AuthError) as exc:
@@ -259,9 +365,135 @@ async def auth_register(body: dict = Body(...)) -> JSONResponse:
         # registration: the user is choosing a name and needs to know it collided.
         raise HTTPException(status_code=409, detail=str(exc))
 
-    response = JSONResponse({"ok": True, "username": user.username, "role": user.role})
+    watching: str | None = None
+    if invite_code:
+        try:
+            watched_id = store.redeem_invite(invite_code, user.id, _now_naive())
+            watched = store.get_user(watched_id)
+            watching = watched.username if watched else None
+        except store.InviteError as exc:
+            # The account exists and the caregiver is signed in; only the link
+            # failed. Say so plainly rather than 500ing — they can redeem a new
+            # code from the caregiver surface without registering again.
+            log.warning("invite redemption failed at registration: %s", exc)
+            response = JSONResponse(
+                {
+                    "ok": True,
+                    "username": user.username,
+                    "role": user.role,
+                    "linked": False,
+                    "link_error": str(exc),
+                }
+            )
+            auth.set_session_cookie(response, user.id)
+            return response
+
+    payload = {"ok": True, "username": user.username, "role": user.role}
+    if invite_code:
+        payload["linked"] = True
+        payload["watching"] = watching
+    response = JSONResponse(payload)
     auth.set_session_cookie(response, user.id)
     return response
+
+
+# ---------------------------------------------------------------------------
+# Invite codes — consent as structure, not as policy (PRD P3)
+# ---------------------------------------------------------------------------
+# These two endpoints are the ONLY way a caregiver link is created outside the
+# seeded demo fixture. Note what is missing from both of them: nowhere can a
+# caregiver name the account they would like to watch. The member generates a
+# code on their own screen and hands it over; the caregiver can only present a
+# code they were given.
+#
+# That asymmetry is the answer to "isn't this surveillance?". It is not a
+# promise in a privacy policy that we ask permission first — it is an API in
+# which the unconsented case cannot be expressed. Nobody can attach themselves
+# to a person who did not invite them, because there is no parameter for it.
+@app.post("/api/invite")
+async def post_invite(request: Request) -> dict:
+    """Generate a single-use, 24-hour invite code. Called by the member.
+
+    A REAL SESSION IS REQUIRED — `authenticated_user_id`, which has no demo
+    fallback, rather than `_session_user`, which resolves an anonymous caller to
+    the published demo fixture. That fallback exists so an evaluator poking at
+    read endpoints sees a working product, and it must not reach this one: a code
+    is a live permission to watch whoever issued it, so letting a stranger mint
+    one against Sam's account would make the consent story a fiction on the
+    single endpoint where it has to be literally true.
+
+    Returns:
+        `{code, expires_at, expires_in_hours}`. The code is shown once on the
+        member's own screen; we do not email or message it anywhere, because
+        the handover is the consent act and it belongs to the member.
+
+    Raises:
+        HTTPException 401: No session. Anonymous callers cannot issue permissions.
+        HTTPException 403: A caregiver account calling this. Caregivers do not
+            issue invitations to be watched; only members do.
+    """
+    user_id = authenticated_user_id(request)
+    if user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in to create an invite code. Credentials are on the login page.",
+        )
+
+    # Role check, not just an auth check. A caregiver issuing an invite would
+    # invert the direction of consent — someone redeeming it would end up
+    # watching the caregiver, which is not a relationship this product models.
+    user = store.get_user(user_id)
+    if user and user.role != "user":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the person being supported can create an invite code.",
+        )
+
+    invite = store.create_invite(user_id, now=_now_naive())
+    return {
+        "code": invite.code,
+        "expires_at": invite.expires_at.isoformat(),
+        "expires_in_hours": store.INVITE_TTL_HOURS,
+    }
+
+
+@app.post("/api/invite/redeem")
+async def post_invite_redeem(request: Request, body: dict = Body(...)) -> dict:
+    """Redeem an invite code, linking the calling caregiver to its issuer.
+
+    Auth is required: a link is attached to a real account, and an anonymous
+    redemption would spend a member's code on nobody.
+
+    Args:
+        body: `{code}` — the code as typed. Case and dashes are normalised by
+            the store, because this is retyped by a human from a screen.
+
+    Returns:
+        `{ok, watching}` where `watching` is the member's username, so the
+        caregiver immediately sees WHO they are now connected to and can catch a
+        mistyped-but-valid code before relying on it.
+
+    Raises:
+        HTTPException 400: Unknown, expired, already-used, or self-issued code.
+            The store's message is passed through verbatim — it distinguishes
+            those cases on purpose, because "invalid" sends an exhausted person
+            round a loop they cannot debug.
+    """
+    caller = authenticated_user_id(request)
+    if caller is None:
+        raise HTTPException(status_code=401, detail="Sign in to redeem an invite code.")
+
+    code = (body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Enter the code you were given.")
+
+    try:
+        watched_id = store.redeem_invite(code, caller, _now_naive())
+    except store.InviteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    watched = store.get_user(watched_id)
+    return {"ok": True, "watching": watched.username if watched else None}
 
 
 @app.post("/api/auth/login")
@@ -323,11 +555,23 @@ async def get_state(request: Request) -> dict:
 
     Deliberately one round trip: at Tier 4 the client must be able to paint the
     emergency surface without a waterfall of requests.
+
+    WHOSE state? Resolved SERVER-SIDE by `resolve_subject`. A member sees their
+    own; a caregiver sees the one person they hold a consented link to (PRD §8);
+    a caregiver with no link gets an honest 403 rather than somebody else's data.
+    The client never names the subject — there is no parameter for it, which is
+    the strongest form the guarantee can take. Before the link table existed this
+    route resolved a signed-in caregiver to their OWN empty account, which is why
+    the caregiver surface rendered blank and the browser was left to reassemble
+    it from an unfiltered event firehose.
+
+    `events` are OLDEST FIRST. See `deps.events_for_wire` for the wire-order
+    contract; every consumer, prompt and UI reads this order.
     """
-    user_id = _session_user(request)
+    user_id = resolve_subject(request)
     profile = store.get_profile(user_id)
     tier = _current_tier(user_id)
-    events = store.list_events(user_id, limit=50)
+    events = events_for_wire(user_id, limit=50)
 
     # Report AI availability honestly. The UI renders an explicit "AI offline" state
     # rather than silently substituting canned text — passing off a fallback as a
@@ -348,6 +592,16 @@ async def get_state(request: Request) -> dict:
         "ai_online": ai_online,
         "profile": profile.model_dump(mode="json") if profile else None,
         "events": [e.model_dump(mode="json") for e in events],
+        # The order contract, stated on the wire rather than only in a docstring.
+        # Consumers had drifted into disagreeing about this — one sliced the
+        # wrong end, another reversed an already-reversed list — and a caregiver
+        # was shown the oldest event as the current reason. A client can now
+        # assert the order it is being given instead of assuming one.
+        "events_order": "oldest_first",
+        # How many of the most recent events this response carries. The ladder
+        # page calls itself a "full event log"; it can only say that honestly if
+        # the server discloses the cap it applied.
+        "events_limit": 50,
     }
 
 
@@ -482,13 +736,44 @@ async def post_rescind(request: Request) -> dict:
 # ---------------------------------------------------------------------------
 @app.get("/api/events")
 async def sse(request: Request) -> StreamingResponse:
-    """Live ladder stream. This is what makes the caregiver surface feel real.
+    """Live ladder stream, scoped per recipient. This makes the caregiver surface real.
 
     SSE rather than WebSockets: the data flows one way, and SSE reconnects on its own
     without any client-side reconnection logic to get wrong.
+
+    THE STREAM IS AUTHORIZED, NOT FILTERED DOWNSTREAM. The listener is tagged
+    with the account behind the session at subscribe time, and `_broadcast` runs
+    every event through `deps.visible_to` before it is written. A listener
+    therefore receives an event only when:
+
+      * it is their own event (PRD §11 — the user's log is never hidden from
+        the user); or
+      * they hold a consented caregiver link to that user AND the watched
+        person's own ladder config permits visibility at that tier — tier 4/5
+        always (PRD §4.2, non-negotiable and undisableable), tier 3 only with
+        `tier_3_visible_to_caregiver`, tiers 0-2 never.
+
+    An anonymous listener is entitled to nothing and receives only heartbeats. It
+    is still allowed to CONNECT rather than being refused, because the bystander
+    surface is deliberately outside the auth wall (PRD §3) and a 401 here would
+    show a scary error on a page someone may be reading while standing over an
+    unconscious person.
+
+    This replaces a global fan-out in which every user's events reached every
+    listener and the caregiver page discarded the ones that were not its own.
+    That put one person's tier reasons, escalation prose and account id on a
+    stranger's socket. Filtering in the browser is a rendering preference; the
+    privacy boundary has to be the point where the bytes leave the server.
     """
-    queue: asyncio.Queue = asyncio.Queue()
-    _listeners.append(queue)
+    # Resolved ONCE, from the signed cookie, before the stream opens. Never from
+    # a query parameter: a subscriber does not get to name who they are.
+    #
+    # A session that expires mid-stream does not retroactively widen access —
+    # this id only ever narrows what `visible_to` will pass — but the LINK is
+    # re-read from the database on every event, so revoking consent silences an
+    # already-open stream on its next event rather than at reconnect.
+    listener = Listener(user_id=authenticated_user_id(request), queue=asyncio.Queue())
+    _listeners.append(listener)
 
     async def stream():
         try:
@@ -499,14 +784,14 @@ async def sse(request: Request) -> StreamingResponse:
                 if await request.is_disconnected():
                     break
                 try:
-                    item = await asyncio.wait_for(queue.get(), timeout=15)
+                    item = await asyncio.wait_for(listener.queue.get(), timeout=15)
                     yield f"data: {json.dumps(item)}\n\n"
                 except asyncio.TimeoutError:
                     # Heartbeat keeps proxies from closing an idle connection.
                     yield "event: ping\ndata: {}\n\n"
         finally:
-            if queue in _listeners:
-                _listeners.remove(queue)
+            if listener in _listeners:
+                _listeners.remove(listener)
 
     return StreamingResponse(
         stream(),
@@ -522,27 +807,13 @@ async def sse(request: Request) -> StreamingResponse:
 # call fails, the response carries live=False plus a populated error, and the UI shows
 # that state explicitly. A fallback never masquerades as a fresh generation — that
 # would be dishonest to the user and an automatic disqualifier under the judging rules.
-async def _generate(builder, *, fast: bool, **kwargs) -> dict:
-    """Run one prompt module through the generative layer.
-
-    Centralised so that every AI surface fails the same way: a Generation-shaped dict
-    with an honest `live` flag, never an exception leaking to the client and never a
-    silent substitution of canned text.
-    """
-    try:
-        from app import genai
-
-        system, user = builder(**kwargs)
-        gen = await genai.generate(system, user, fast=fast)
-        return gen.model_dump()
-    except Exception as exc:
-        return {
-            "text": "",
-            "live": False,
-            "model": "",
-            "latency_ms": 0,
-            "error": f"AI unavailable: {exc}",
-        }
+#
+# The funnel itself lives in `app.deps` and is imported at the top of this file
+# rather than redefined here. It grew a second responsibility — recording which
+# account a cached generation belongs to, so account deletion can remove it — and
+# a duplicate copy would have meant half the generative surfaces silently leaving
+# a cached home address and door entry code behind after a user deleted
+# themselves.
 
 
 @app.get("/api/script/911")
@@ -552,19 +823,25 @@ async def get_script_911(request: Request) -> dict:
     Generated during calm and read aloud one line at a time during crisis, because
     under acute stress people cannot produce a coherent report from memory (PRD §6.1).
     """
-    profile = store.get_profile(_require_own_profile(request))
+    owner_id = _require_own_profile(request)
+    profile = store.get_profile(owner_id)
     from app.prompts import script_911
 
-    return await _generate(script_911.build, fast=False, profile=profile)
+    # Ownership is recorded because this is THE sensitive cached artefact: the
+    # text contains a home address, an apartment number and a door entry code.
+    # /data-deletion promises to remove cached generations, and without an owner
+    # the file would survive the account that produced it.
+    return await _generate(script_911.build, fast=False, owner_id=owner_id, profile=profile)
 
 
 @app.get("/api/script/refusal")
 async def get_script_refusal(request: Request) -> dict:
     """Refusal and exit lines in the user's own register — prevention-side, zero typing."""
-    profile = store.get_profile(_session_user(request))
+    owner_id = _session_user(request)
+    profile = store.get_profile(owner_id)
     from app.prompts import refusal
 
-    return await _generate(refusal.build, fast=False, profile=profile)
+    return await _generate(refusal.build, fast=False, owner_id=owner_id, profile=profile)
 
 
 @app.get("/api/tolerance")
@@ -580,7 +857,9 @@ async def get_tolerance(request: Request) -> dict:
     profile = store.get_profile(user_id)
     from app.prompts import tolerance
 
-    payload = await _generate(tolerance.build, fast=False, profile=profile, now=_now())
+    payload = await _generate(
+        tolerance.build, fast=False, owner_id=user_id, profile=profile, now=_now()
+    )
     # Surface the window itself alongside the message so the UI can show *why* this
     # fired — the deterministic layer explains itself; the model only phrases it.
     payload["window_active"] = triage.tolerance_window_active(profile, _now())
@@ -637,15 +916,33 @@ async def get_caregiver_brief(request: Request) -> dict:
     A raw ping wakes someone into maximum panic and tells them nothing. This arrives
     with what happened, what the system already did automatically, what to do in the
     next sixty seconds, and — CRAFT-grounded — what not to say (PRD §8).
+
+    ABOUT WHOM? `resolve_subject` again: the linked, consented watched user, or a
+    403 for a caregiver nobody has added. A caregiver cannot brief against an
+    account they do not hold a link to, and no request parameter can name one.
+
+    The events go in OLDEST FIRST via `events_for_wire`, which is what the prompt
+    documents and expects. It previously received the newest-first storage order,
+    took `events[-max_events:]` believing that was the recent tail, and read
+    `tail[-1].reason` as the CURRENT reason — so a caregiver woken at 3am was
+    handed the oldest event as tonight's reason and the incident narrated
+    backwards. The prompt now gets the order it was written for.
     """
-    user_id = _session_user(request)
+    user_id = resolve_subject(request)
     profile = store.get_profile(user_id)
     tier = _current_tier(user_id)
-    events = store.list_events(user_id, limit=10)
+    events = events_for_wire(user_id, limit=10)
     from app.prompts import caregiver_brief
 
+    # Owned by the WATCHED person, not the caregiver reading it. The brief is
+    # about them and is built from their event log, so it goes when they go.
     payload = await _generate(
-        caregiver_brief.build, fast=False, profile=profile, tier=tier, events=events
+        caregiver_brief.build,
+        fast=False,
+        owner_id=user_id,
+        profile=profile,
+        tier=tier,
+        events=events,
     )
     payload["tier"] = int(tier)
     return payload
@@ -663,11 +960,43 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
     one thing the user cannot switch off, disclosed at onboarding and stated in
     the Terms. Accepting them from the client would make that disclosure a lie
     even if the UI never sent them.
+
+    CREATES a profile when the account has none. A newly registered evaluator had
+    no way to get one: this route required an existing row, and an anonymous
+    caller was resolved to the published demo profile — so "the user owns the
+    escalation thresholds", the product's central claim, was true only for a
+    fixture that shipped pre-populated. It is now true end-to-end from an empty
+    account.
+
+    OWNER-ONLY. `authenticated_user_id` is used rather than the demo-resolving
+    session helper: this route WRITES, and the demo fallback exists to make reads
+    look alive, not to let an anonymous stranger edit a home address and door
+    entry code. A caregiver is refused too — they may watch a ladder, never
+    rewrite one (PRD P3: these thresholds belong to the person they describe).
     """
-    user_id = _require_own_profile(request)
+    user_id = authenticated_user_id(request)
+    if user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in to save your settings. Demo credentials are on the login page.",
+        )
+
+    actor = store.get_user(user_id)
+    if actor is not None and actor.role == "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="A caregiver cannot change the thresholds of the person they support.",
+        )
+
     profile = store.get_profile(user_id)
-    if not profile:
-        raise HTTPException(status_code=404, detail="No profile to update.")
+    if profile is None:
+        # First save for this account. The profile id is generated SERVER-SIDE and
+        # the display name comes from the account, so neither is a client-writable
+        # field — a crafted body cannot mint a profile with somebody else's id.
+        profile = UserProfile(
+            id=uuid.uuid4().hex,
+            name=(actor.username if actor else "You"),
+        )
 
     # Whitelist the fields onboarding is allowed to change. Anything else in the
     # body is ignored rather than merged, so a crafted request cannot rewrite
@@ -683,15 +1012,109 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
     for field in ("tier_2_visible_to_caregiver", "tier_3_visible_to_caregiver"):
         if isinstance(ladder.get(field), bool):
             setattr(profile.ladder, field, ladder[field])
-    if isinstance(ladder.get("silence_seconds_to_escalate"), int):
+    # `bool` is a subclass of `int` in Python, so `isinstance(True, int)` is True.
+    # Excluding bool explicitly stops a stray `true` from being stored as a
+    # threshold of 1 — a silently wrong safety number that no form would reveal.
+    if isinstance(ladder.get("silence_seconds_to_escalate"), int) and not isinstance(
+        ladder.get("silence_seconds_to_escalate"), bool
+    ):
         # Bounded: a user may tune how long silence waits, but not disable it by
         # setting it to something that never fires.
         profile.ladder.silence_seconds_to_escalate = max(
             5, min(300, ladder["silence_seconds_to_escalate"])
         )
+    if isinstance(ladder.get("missed_checkins_to_elevate"), int) and not isinstance(
+        ladder.get("missed_checkins_to_elevate"), bool
+    ):
+        # Was accepted by the form and then silently dropped here, so the user
+        # saw their choice reflected in the UI and stored nowhere. Bounded 1-10:
+        # zero would elevate on a check-in that never happened, and a large
+        # number is indistinguishable from switching the rung off — the ladder
+        # is tunable, not disableable.
+        profile.ladder.missed_checkins_to_elevate = max(
+            1, min(10, ladder["missed_checkins_to_elevate"])
+        )
+
+    # --- Contacts ---------------------------------------------------------
+    # Editable at last. The onboarding UI said outright that contacts were not
+    # editable, which made the contact tree — who gets woken, and at which tier —
+    # the one part of the escalation the user could not actually own.
+    #
+    # Absent key means "leave the tree alone"; an explicit empty list means
+    # "I have no contacts", which is a legitimate and different statement. The
+    # two must not collapse into each other, or a partial save would silently
+    # delete everyone.
+    if "contacts" in body:
+        profile.contacts = _parse_contacts(body.get("contacts"))
 
     store.put_profile(user_id, profile)
     return {"ok": True, "profile": profile.model_dump(mode="json")}
+
+
+# Ceiling on the contact tree. A person has a handful of people; anything past
+# this is either a mistake or an attempt to make one profile write expensive.
+_MAX_CONTACTS = 10
+
+
+def _parse_contacts(raw) -> list[Contact]:
+    """Validate a client-supplied contact tree into typed `Contact` models.
+
+    Every field is bounded and every tier is checked against the enum, because
+    this list decides who is telephoned when someone stops breathing. A malformed
+    entry is REJECTED with a 400 rather than dropped silently: a user who thinks
+    they added their sister and did not is worse off than one who sees an error.
+
+    Args:
+        raw: The `contacts` value from the request body. Must be a list of
+            objects.
+
+    Returns:
+        The parsed contacts, renumbered into a contiguous 1-based fire order so
+        the stored tree cannot contain gaps or ties that make "who is called
+        first" ambiguous.
+
+    Raises:
+        HTTPException: 400 for a non-list, an over-long list, a non-object entry,
+            a missing name, or an unknown tier.
+    """
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="contacts must be a list.")
+    if len(raw) > _MAX_CONTACTS:
+        raise HTTPException(
+            status_code=400, detail=f"No more than {_MAX_CONTACTS} contacts."
+        )
+
+    parsed: list[Contact] = []
+    for index, entry in enumerate(raw, start=1):
+        if not isinstance(entry, dict):
+            raise HTTPException(status_code=400, detail="Each contact must be an object.")
+
+        name = str(entry.get("name") or "").strip()[:100]
+        if not name:
+            raise HTTPException(status_code=400, detail="Every contact needs a name.")
+
+        tiers: list[Tier] = []
+        for value in entry.get("tiers") or []:
+            try:
+                tiers.append(Tier(int(value)))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail=f"Unknown tier: {value!r}")
+
+        parsed.append(
+            Contact(
+                name=name,
+                relation=str(entry.get("relation") or "").strip()[:100],
+                # Defaults to phone: an unreachable channel is worse than a
+                # wrong-but-dialable one on the tier-5 path.
+                channel=str(entry.get("channel") or "phone").strip()[:20] or "phone",
+                # Position comes from the submitted ORDER, not from a
+                # client-supplied `order` field. That makes ties and gaps
+                # unrepresentable rather than merely unlikely.
+                order=index,
+                tiers=tiers,
+            )
+        )
+    return parsed
 
 
 @app.post("/api/reset")
@@ -945,6 +1368,20 @@ async def post_account_delete(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="sign in first")
 
+    # Destroy any consented supporter voice models this account owns, BEFORE the
+    # rows behind them go. A hard constraint of that feature: deleting an account
+    # deletes the voice model, at the provider and not merely in our database.
+    # `store.delete_user_data` cannot do this — it has no network access by
+    # design — so it is done here, where a route can await the provider call.
+    # Best-effort: a provider outage must never trap a person inside an account
+    # they have asked to leave.
+    try:
+        from app.routes import voice as voice_routes
+
+        await voice_routes.purge_voices_for_user(user.id)
+    except Exception as exc:  # pragma: no cover - defensive; deletion still proceeds
+        log.warning("supporter voice purge failed during account deletion: %s", exc)
+
     # Clear the live ladder cursor too, so no in-memory trace of the session outlives
     # the deletion of the records behind it.
     _tiers.pop(user.id, None)
@@ -1036,6 +1473,22 @@ async def page_login():
 @app.get("/register")
 async def page_register():
     return _page("register.html")
+
+
+@app.get("/register/caregiver")
+async def page_register_caregiver():
+    """The caregiver's own front door.
+
+    A separate page rather than a radio button, because the two audiences arrive
+    in completely different states. A member is signing up for themselves in a
+    calm moment. A caregiver is usually here because someone they love asked them
+    to be, and they are frightened. The copy on each page is written for the
+    person reading it, which a single shared form cannot do.
+
+    It is also where the invite code is entered, which makes the consent model
+    visible at the front door rather than buried in a settings screen.
+    """
+    return _page("register-caregiver.html")
 
 
 # Mounted last so it cannot shadow the API routes above.

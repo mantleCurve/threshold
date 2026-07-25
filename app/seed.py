@@ -283,8 +283,36 @@ def seed(now: datetime | None = None) -> None:
     if sam is None:
         sam = auth.register(DEMO_USER_USERNAME, DEMO_PASSWORD, role="user")
 
-    if store.get_user_by_username(DEMO_CAREGIVER_USERNAME) is None:
-        auth.register(DEMO_CAREGIVER_USERNAME, DEMO_PASSWORD, role="caregiver")
+    sarah = store.get_user_by_username(DEMO_CAREGIVER_USERNAME)
+    if sarah is None:
+        sarah = auth.register(DEMO_CAREGIVER_USERNAME, DEMO_PASSWORD, role="caregiver")
+
+    # --- The consented caregiver relationship ------------------------------
+    # PRD §8: a caregiver watches ONE named person who agreed to be watched.
+    # Without this row Sarah signs in and the server has no idea whose ladder
+    # she is entitled to see — which is precisely why /api/state used to resolve
+    # her own (empty) account and the event stream used to broadcast everybody's
+    # events to everybody and let the browser decide what to hide. Client-side
+    # filtering is a rendering preference, not a privacy boundary. This row is
+    # the boundary.
+    #
+    # SEEDED THROUGH A REAL INVITE, NOT A BARE LINK ROW. Sarah watches Sam
+    # because Sam invited her: a code was generated on his onboarding page, read
+    # to his sister, and redeemed by her on /register/caregiver. Seeding it that
+    # way means the demo's starting state is one an ordinary account could have
+    # reached, with no privileged path a real user does not also have — and the
+    # `invites` row is there in the database as the evidence of consent.
+    #
+    # PRD P3: consent is structural here, not a policy claim. There is no API
+    # parameter anywhere that lets a caregiver name the account they want to
+    # watch; the permission only ever travels from the watched person outward.
+    #
+    # Guarded on `is_linked` rather than unconditionally, because `create_invite`
+    # writes a fresh row each call and re-running seed() on a warm database must
+    # not accumulate spent codes.
+    if not store.is_linked(sarah.id, sam.id):
+        invite = store.create_invite(sam.id, now=now)
+        store.redeem_invite(invite.code, sarah.id, now=now)
 
     # --- Profile ----------------------------------------------------------
     # Upsert on every call. `put_profile` replaces contacts and tolerance
@@ -292,8 +320,13 @@ def seed(now: datetime | None = None) -> None:
     store.put_profile(sam.id, _demo_profile(now))
 
     # --- Vault ------------------------------------------------------------
+    # Owned by Sam, not by Sarah. The clip is a recording Sarah MADE, but it is
+    # a thing in Sam's vault, played to Sam, and it names him and his situation.
+    # Ownership follows the listener because that is what /data-deletion
+    # promises to erase: "Memory Vault recordings and transcripts linked to
+    # your account". If Sam leaves, the recordings about Sam go with him.
     for clip in _vault_clips():
-        store.put_vault_clip(clip)
+        store.put_vault_clip(clip, owner_user_id=sam.id)
 
     # --- Event log --------------------------------------------------------
     # Deliberately empty. Sam starts at Tier 0. Seeding an escalation history

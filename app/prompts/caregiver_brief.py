@@ -203,23 +203,36 @@ def build(
         profile: The person the brief is about.
         tier: Current tier, already decided by `app/triage.py`. Passed in as a *fact*;
             the prompt forbids the model from reasoning about or naming it.
-        events: Append-only event log. Only the tail is sent — see `max_events`.
+        events: Append-only event log, OLDEST FIRST. This is the app's single wire
+            order, produced by `app.deps.events_for_wire`; the USER template above
+            also promises the model "oldest first", so the input has to match the
+            claim. Passing storage order (newest first) here is a bug with teeth:
+            the negative slice below would then take the OLDEST events, `_compress`
+            would render the night in reverse, and `tail[-1].reason` would report
+            the FIRST thing that happened as what is happening now. A caregiver
+            woken at 3am would be told the wrong reason and given the incident
+            backwards. Only the most recent `max_events` are sent.
         reason: The auditable, human-written reason string from `TriageResult`. Never
             model-written (CONTRACT.md), so it is safe to quote into the prompt. When
             omitted it is recovered from the most recent event, which carries the same
             reason string — so the caller is not forced to thread it through.
-        max_events: How many trailing events to include. Bounded on purpose: a
-            caregiver at 3am needs tonight, and an unbounded log would both blow the
-            latency budget and let old, resolved incidents contaminate the summary.
+        max_events: How many of the most recent events to include. Bounded on
+            purpose: a caregiver at 3am needs tonight, and an unbounded log would
+            both blow the latency budget and let old, resolved incidents
+            contaminate the summary.
 
     Returns:
         (system, user) prompt strings. See the module docstring for the audited list of
         exactly which profile and event fields are transmitted.
     """
+    # Oldest first, so the most recent events are at the END: the negative slice
+    # is the recent tail, and it stays in chronological order for the model.
     tail = events[-max_events:]
 
     # Recover the reason from the log rather than inventing one. Everything the model
     # is told about *why* must trace to a deterministic, auditable source.
+    # Under the oldest-first contract `tail[-1]` is the NEWEST event — the current
+    # reason, and the only one a caregiver acting right now can act on.
     if not reason:
         reason = tail[-1].reason if tail else "(no reason recorded)"
 

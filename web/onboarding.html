@@ -279,6 +279,112 @@
       </section>
 
       <!-- ---------------------------------------------------------------- 4 -
+           INVITE A SUPPORTER.
+
+           THIS SECTION IS THE PRODUCT'S ANSWER TO "ISN'T THIS SURVEILLANCE?".
+
+           A caregiver cannot search for you, cannot type your username, and
+           cannot be attached to you by us. The only way anyone comes to be
+           watching your ladder is that YOU generated a code on this screen, in a
+           calm moment, and chose to hand it over. The permission travels outward
+           from you — never inward toward you (PRD P3).
+
+           That is why this control lives HERE, between the ladder you configured
+           and the promise you are about to save, rather than in a settings menu.
+           Deciding who sees the ladder is part of deciding what the ladder is.
+
+           The code is displayed and never sent anywhere by us. Reading it out or
+           passing the phone across a table IS the consent act, and it belongs to
+           the member, not to a mail server.
+           -------------------------------------------------------------------->
+      <section class="promise__step stack" aria-labelledby="invite-h">
+        <p class="promise__num">Step four</p>
+        <h2 class="h2 display" id="invite-h">Invite someone to support you</h2>
+        <p class="prose">
+          Nobody can attach themselves to you. Not a family member, not us. The
+          only way anyone sees any part of this is that you generate a code here
+          and give it to them yourself.
+        </p>
+
+        <div class="row">
+          <button type="button" class="btn" id="make-invite">Generate an invite code</button>
+        </div>
+
+        <!-- The generated code. Hidden until one exists rather than showing an
+             empty placeholder, so there is never a blank box that looks like a
+             code failed to load. A11Y: polite live region — the code appearing
+             is important but not an interruption. -->
+        <div class="panel" id="invite-result" hidden aria-live="polite">
+          <p class="label">Read this to them, or show them the screen</p>
+          <p class="display data" id="invite-code"
+             style="font-size: var(--step-5); letter-spacing: 0.22em;"></p>
+          <p class="hint" id="invite-expiry"></p>
+          <p class="hint">
+            They enter it at <strong>/register/caregiver</strong>. It works once,
+            for one person, and stops working after 24 hours. Generate another
+            any time — there is no limit, and an unused code costs nothing.
+          </p>
+        </div>
+
+        <p class="hint" id="invite-error" role="alert" hidden></p>
+      </section>
+
+      <!-- ---------------------------------------------------------------- 5 -
+           THE APP'S SPEAKING VOICE.
+
+           CRITICAL DISTINCTION, AND THE REASON THIS SECTION IS WORDED THE WAY
+           IT IS:
+
+           This picker chooses a SYNTHETIC voice for THE APP'S OWN SPEECH — the
+           check-in replies, the grounding steps, the 911 script read aloud. It
+           has nothing whatsoever to do with the Memory Vault.
+
+           Memory Vault clips are REAL RECORDINGS OF REAL PEOPLE and are NEVER
+           synthesised. No option in this list imitates a specific caregiver, and
+           none ever will: PRD §7.2 declined voice cloning deliberately. The
+           reasoning is worth stating in full because it is easy to mistake for
+           excessive caution — consent obtained in calm is spent in crisis. A
+           person who agreed months ago that their sister's voice could be
+           synthesised is not the person hearing it at tier 4, and a disclosure
+           label does no cognitive work at all on someone intoxicated or
+           panicking. The only safe design is that a voice you recognise as your
+           sister's IS your sister's.
+
+           Stored in localStorage, never on the server. Which voice you prefer is
+           not health data and has no business in a database that also knows what
+           you use.
+           -------------------------------------------------------------------->
+      <section class="promise__step stack" aria-labelledby="voice-h">
+        <p class="promise__num">Step five</p>
+        <h2 class="h2 display" id="voice-h">The voice Threshold speaks in</h2>
+        <p class="prose">
+          You will hear this at 3am. Pick one you can stand.
+        </p>
+
+        <div class="field" style="max-width: 28rem;">
+          <label for="voice-pick">App voice</label>
+          <select class="input" id="voice-pick" aria-describedby="voice-hint">
+            <option value="">System default</option>
+            <!-- JS fills this from speechSynthesis.getVoices() -->
+          </select>
+          <!-- THE HELPER TEXT MUST SAY BOTH HALVES. A picker that only said
+               "choose a voice" would leave a reasonable person wondering whether
+               the vault clips are synthesised too. -->
+          <p class="hint" id="voice-hint">
+            This is a synthetic voice, and it is the app speaking as the app — it
+            never claims to be a person. Memory Vault clips are different: those
+            are real recordings of real people, played exactly as recorded.
+            Threshold does not and will not imitate anyone's voice.
+          </p>
+        </div>
+
+        <div class="row">
+          <button type="button" class="btn btn--quiet" id="voice-preview">Preview</button>
+          <span class="hint" id="voice-status">Saved on this device only.</span>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- 6 -
            THE CLOSING PROMISE. The last thing read before saving, and the one
            the whole product stands on.
            -------------------------------------------------------------------->

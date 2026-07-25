@@ -33,11 +33,12 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 
@@ -247,6 +248,32 @@ CREATE TABLE IF NOT EXISTS caregiver_links (
 );
 CREATE INDEX IF NOT EXISTS idx_links_watched
     ON caregiver_links(watched_user_id);
+
+-- Consented supporter voice models.
+--
+-- THE CONSENT RECORD IS THE POINT OF THIS TABLE, not the voice id.
+-- `consent_text` stores the exact wording the supporter agreed to, not a
+-- boolean. A flag saying "they consented" cannot answer "consented to what?"
+-- a year later, when the wording has changed or a dispute arises. PRD §7.2
+-- declined voice cloning precisely because consent given in calm is spent in
+-- crisis; if we are going to build it anyway, the least we can do is keep an
+-- honest record of what was actually agreed, by whom, and when.
+--
+-- `shared` is a SECOND, separate decision. Recording your voice and letting
+-- someone else hear it are not the same act, so they are not the same column
+-- and not the same request.
+CREATE TABLE IF NOT EXISTS supporter_voices (
+    id                TEXT PRIMARY KEY,
+    caregiver_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    voice_id          TEXT NOT NULL,          -- provider-side model id
+    display_name      TEXT NOT NULL,
+    consent_text      TEXT NOT NULL,          -- verbatim wording agreed to
+    consented_at      TEXT NOT NULL,
+    shared            INTEGER NOT NULL DEFAULT 0,
+    created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voices_caregiver
+    ON supporter_voices(caregiver_user_id);
 
 -- Invite codes. THIS TABLE IS WHERE CONSENT BECOMES STRUCTURAL.
 --
@@ -763,6 +790,346 @@ def caregivers_for(watched_user_id: str) -> list[str]:
             (watched_user_id,),
         ).fetchall()
     return [r["caregiver_user_id"] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Invite codes — how a caregiver link is allowed to come into existence
+# ---------------------------------------------------------------------------
+# WHY THIS EXISTS AT ALL (PRD P3).
+#
+# The obvious design is a caregiver typing in the username of the person they
+# want to watch. That design makes consent a policy claim: we would be promising
+# that we ask permission, and a reader would have to take our word for it.
+#
+# This design makes consent STRUCTURAL. The only path into `caregiver_links` is
+# a code the watched member generated on their own screen and handed over. An
+# attacker who knows a member's username, guesses their email, or works at this
+# company cannot attach themselves as a caregiver, because there is no code path
+# that accepts a target account name from the watcher. The permission travels in
+# the opposite direction to the request.
+#
+# This is the answer to "isn't this surveillance?", and it is the reason it is a
+# real answer rather than a reassuring one: surveillance is watching without the
+# watched person's act. Here the watched person's act is the only thing that
+# creates the relationship, it expires, and it works exactly once.
+
+# Unambiguous alphabet. O/0 and I/1/L are excluded because this code gets read
+# aloud over a phone, written on a scrap of paper, or squinted at by someone's
+# exhausted mother at midnight. A code that is transcribed wrongly is a member
+# re-doing the whole flow while a caregiver waits, which is friction on exactly
+# the step the product wants to be effortless.
+INVITE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+# Six characters over a 31-symbol alphabet is ~887 million codes. Combined with
+# single use and a 24h expiry, guessing is not a practical attack: an attacker
+# would have to hit a live code inside its window, and the rate limiter in
+# app/security.py caps attempts long before the search space is meaningful.
+# Short is a deliberate usability choice, not a security compromise — a
+# 32-character token would be unreadable aloud and would push people to
+# screenshot and message it, which is a worse exposure than the one it prevents.
+INVITE_CODE_LENGTH = 6
+
+# 24 hours. Consent is a moment, not a standing state. A code issued today and
+# found in a drawer next month is not permission the member would recognise
+# giving, so it stops working on its own rather than waiting to be revoked.
+INVITE_TTL_HOURS = 24
+
+
+@dataclass(frozen=True)
+class Invite:
+    """An issued invite code.
+
+    Attributes:
+        code: The human-readable code. Also the primary key.
+        user_id: The member who issued it — whose ladder redeeming it opens.
+        created_at: Issue time.
+        expires_at: Hard cutoff, `INVITE_TTL_HOURS` after issue.
+        redeemed_at: None until used. Non-None means the code is spent.
+        redeemed_by: The caregiver account that used it, or None.
+    """
+
+    code: str
+    user_id: str
+    created_at: datetime
+    expires_at: datetime
+    redeemed_at: datetime | None = None
+    redeemed_by: str | None = None
+
+    @property
+    def is_spent(self) -> bool:
+        """True once redeemed. Single use is the point; see the table comment."""
+        return self.redeemed_at is not None
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        """Whether the code has passed its 24h window.
+
+        Args:
+            now: Reference time, injected so tests can pin it rather than
+                sleeping for a day.
+        """
+        return (now or datetime.now()) >= self.expires_at
+
+
+class InviteError(Exception):
+    """A code could not be redeemed.
+
+    One exception type for every refusal reason — unknown, expired, already
+    used, self-redemption — and the message says which. Distinguishing them is
+    safe here: the redeemer already holds the code, so telling them it expired
+    discloses nothing they could not learn by trying again tomorrow, and a
+    single opaque "invalid" would send an exhausted person round a loop they
+    cannot debug.
+    """
+
+
+def _row_to_invite(row: sqlite3.Row) -> Invite:
+    """Map a stored row to an `Invite`.
+
+    Args:
+        row: A row from `invites`.
+
+    Returns:
+        The typed record, with nullable timestamps preserved as None.
+    """
+    return Invite(
+        code=row["code"],
+        user_id=row["user_id"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        expires_at=datetime.fromisoformat(row["expires_at"]),
+        redeemed_at=(
+            datetime.fromisoformat(row["redeemed_at"]) if row["redeemed_at"] else None
+        ),
+        redeemed_by=row["redeemed_by"],
+    )
+
+
+def generate_invite_code(length: int = INVITE_CODE_LENGTH) -> str:
+    """Produce a random code from the unambiguous alphabet.
+
+    Uses `secrets.choice`, not `random`: `random` is a Mersenne Twister seeded
+    from the clock, and its output is predictable from a handful of prior
+    values. A predictable invite code would let an attacker mint themselves a
+    caregiver link, which is the exact failure this whole subsystem exists to
+    make impossible.
+
+    Args:
+        length: Number of characters. Defaults to `INVITE_CODE_LENGTH`.
+
+    Returns:
+        An uppercase code such as "K7QW2M".
+    """
+    return "".join(secrets.choice(INVITE_ALPHABET) for _ in range(length))
+
+
+def create_invite(
+    user_id: str,
+    now: datetime | None = None,
+    ttl_hours: int = INVITE_TTL_HOURS,
+) -> Invite:
+    """Issue a fresh, single-use, expiring invite code for a member.
+
+    Collision handling is a bounded retry against the PRIMARY KEY rather than a
+    prior SELECT, because a check-then-insert would race two members generating
+    a code at the same instant and hand both the same string — which would link
+    a caregiver to the wrong person's ladder. The database is the authority.
+
+    Args:
+        user_id: The member issuing the invite. Must exist; foreign keys are ON,
+            so an unknown id raises rather than creating an orphan code.
+        now: Issue time, injected by tests.
+        ttl_hours: Lifetime. Defaults to `INVITE_TTL_HOURS` (24h).
+
+    Returns:
+        The stored `Invite`, whose `.code` is what the member reads out.
+
+    Raises:
+        sqlite3.IntegrityError: If `user_id` does not exist, or — after several
+            attempts — if code generation kept colliding. The latter is
+            effectively impossible at this alphabet size and is deliberately
+            left to raise rather than silently returning a duplicate.
+    """
+    issued = now or datetime.now()
+    expires = issued + timedelta(hours=ttl_hours)
+
+    # Bounded retry. Five attempts against ~887M codes; if this ever exhausts,
+    # something is wrong that a sixth attempt would not fix.
+    last_error: Exception | None = None
+    for _ in range(5):
+        code = generate_invite_code()
+        try:
+            with connection() as conn:
+                conn.execute(
+                    "INSERT INTO invites (code, user_id, created_at, expires_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (code, user_id, issued.isoformat(), expires.isoformat()),
+                )
+            return Invite(
+                code=code, user_id=user_id, created_at=issued, expires_at=expires
+            )
+        except sqlite3.IntegrityError as exc:
+            # Distinguish a code collision (retryable) from a bad user_id (not).
+            if "invites.code" not in str(exc) and "UNIQUE" not in str(exc).upper():
+                raise
+            last_error = exc
+    raise last_error  # pragma: no cover - unreachable at this alphabet size
+
+
+def get_invite(code: str) -> Invite | None:
+    """Look up an invite without consuming it.
+
+    Read-only, and used by tests and by the redeem path's error reporting. It
+    deliberately does NOT check expiry or redemption — a caller asking "does
+    this row exist" should get the row and decide, so that there is exactly one
+    place (`redeem_invite`) where those conditions are enforced.
+
+    Args:
+        code: The code as typed. Case and surrounding whitespace are normalised,
+            because a code read off a screen is retyped by a human.
+
+    Returns:
+        The `Invite`, or None if no such code was ever issued.
+    """
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM invites WHERE code = ?", (_normalise_code(code),)
+        ).fetchone()
+    return _row_to_invite(row) if row else None
+
+
+def _normalise_code(code: str) -> str:
+    """Normalise a typed code for lookup.
+
+    Uppercases and strips whitespace and separating dashes. A person retyping
+    "k7qw-2m" from a text message must not be told their code is invalid over a
+    difference the alphabet cannot even represent.
+
+    Args:
+        code: Raw user input.
+
+    Returns:
+        The canonical form as stored.
+    """
+    return (code or "").strip().upper().replace("-", "").replace(" ", "")
+
+
+def redeem_invite(
+    code: str,
+    caregiver_user_id: str,
+    now: datetime | None = None,
+) -> str:
+    """Redeem a code, atomically linking a caregiver to the issuing member.
+
+    ATOMICITY IS THE SECURITY PROPERTY HERE, not a tidiness preference. The
+    redemption stamp and the link insert happen in ONE transaction, and the
+    UPDATE is guarded by `redeemed_at IS NULL` in its own WHERE clause. That
+    makes the database, not this function's control flow, the thing that decides
+    a code is spent — so two caregivers racing the same leaked code cannot both
+    win. Exactly one UPDATE reports a row, and only that caller writes a link.
+
+    Args:
+        code: The code as typed by the caregiver. Normalised; see
+            `_normalise_code`.
+        caregiver_user_id: The redeeming account.
+        now: Reference time, injected so expiry is testable without waiting.
+
+    Returns:
+        The watched user id — the member whose ladder this caregiver may now
+        see. Returned rather than a bare bool so the caller never has to look
+        the relationship up again through some less-authoritative path.
+
+    Raises:
+        InviteError: Unknown code, expired code, already-redeemed code, or a
+            member trying to redeem their own invite. Each case is refused
+            before anything is written.
+    """
+    when = now or datetime.now()
+    normalised = _normalise_code(code)
+
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM invites WHERE code = ?", (normalised,)
+        ).fetchone()
+        if row is None:
+            raise InviteError("That code is not recognised. Check it and try again.")
+
+        invite = _row_to_invite(row)
+
+        if invite.user_id == caregiver_user_id:
+            # Not merely odd — `link_caregiver` refuses self-links, so allowing
+            # this through would burn the member's code on an error.
+            raise InviteError("You cannot redeem your own invite code.")
+        if invite.is_spent:
+            raise InviteError(
+                "That code has already been used. Ask for a new one — codes work once."
+            )
+        if invite.is_expired(when):
+            raise InviteError(
+                "That code has expired. Codes last 24 hours; ask for a fresh one."
+            )
+
+        # The latch. `redeemed_at IS NULL` in the WHERE means the database
+        # decides the winner of a race, not the check above.
+        cursor = conn.execute(
+            "UPDATE invites SET redeemed_at = ?, redeemed_by = ?"
+            " WHERE code = ? AND redeemed_at IS NULL",
+            (when.isoformat(), caregiver_user_id, normalised),
+        )
+        if cursor.rowcount != 1:  # pragma: no cover - only reachable under a race
+            raise InviteError("That code has already been used.")
+
+        # Same transaction as the latch: a link is written if and only if a code
+        # was spent, and vice versa. A committed link with no spent code would
+        # be an unconsented watcher; a spent code with no link would be a member
+        # who gave permission that silently did nothing.
+        conn.execute(
+            "INSERT INTO caregiver_links (caregiver_user_id, watched_user_id, consented_at)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT(caregiver_user_id, watched_user_id)"
+            " DO UPDATE SET consented_at=excluded.consented_at",
+            (caregiver_user_id, invite.user_id, when.isoformat()),
+        )
+
+    return invite.user_id
+
+
+def watched_user_for(caregiver_user_id: str) -> str | None:
+    """The single member a caregiver is permitted to see, or None.
+
+    Thin alias over `primary_watched_user` so that caregiver-facing routes read
+    as the question they are actually asking ("which member is this?") rather
+    than as a list operation. One name for one concept keeps the authorization
+    boundary easy to grep for.
+
+    Args:
+        caregiver_user_id: The account making the request.
+
+    Returns:
+        The watched member's user id, or None when no consented link exists.
+        None is the honest answer and callers must render it as "nobody has
+        invited you yet" — never as a fallback to some other account.
+    """
+    return primary_watched_user(caregiver_user_id)
+
+
+def list_invites(user_id: str) -> list[Invite]:
+    """Every invite a member has issued, newest first.
+
+    Exists so the member can see what they have handed out. PRD §11's "no hidden
+    log" principle applies to permissions too: a code that is out in the world
+    is a thing the member is entitled to see.
+
+    Args:
+        user_id: The issuing member.
+
+    Returns:
+        Invites, newest first. Empty list for a member who has issued none.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM invites WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [_row_to_invite(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -1456,3 +1823,95 @@ def latest_event(user_id: str) -> Event | None:
     """
     events = list_events(user_id, limit=1)
     return events[0] if events else None
+
+
+# ---------------------------------------------------------------------------
+# Supporter voices
+# ---------------------------------------------------------------------------
+def save_supporter_voice(
+    *,
+    voice_row_id: str,
+    caregiver_user_id: str,
+    voice_id: str,
+    display_name: str,
+    consent_text: str,
+    now_iso: str,
+) -> None:
+    """Record a consented supporter voice.
+
+    `consent_text` is stored verbatim rather than as a boolean, so an audit can
+    answer "consented to what, exactly?" and not merely "did they tick a box?".
+    Shared defaults to 0: recording a voice and sharing it are two decisions.
+    """
+    with connection() as conn:
+        conn.execute(
+            """INSERT INTO supporter_voices
+               (id, caregiver_user_id, voice_id, display_name,
+                consent_text, consented_at, shared, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?)""",
+            (voice_row_id, caregiver_user_id, voice_id, display_name,
+             consent_text, now_iso, now_iso),
+        )
+        conn.commit()
+
+
+def voices_for_caregiver(caregiver_user_id: str) -> list[dict]:
+    """Every voice this caregiver has recorded, shared or not."""
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM supporter_voices WHERE caregiver_user_id = ?"
+            " ORDER BY created_at DESC",
+            (caregiver_user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def shared_voices_for_member(member_user_id: str) -> list[dict]:
+    """Voices a member may actually use.
+
+    Two conditions, both enforced HERE in SQL rather than in the client: the
+    caregiver must hold a consented link to this member, and must have chosen
+    to share. A voice that was recorded but not shared is invisible to the
+    member — the caregiver keeps that decision.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            """SELECT v.* FROM supporter_voices v
+               JOIN caregiver_links l
+                 ON l.caregiver_user_id = v.caregiver_user_id
+               WHERE l.watched_user_id = ? AND v.shared = 1""",
+            (member_user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_voice_shared(voice_row_id: str, caregiver_user_id: str, shared: bool) -> bool:
+    """Toggle sharing. Scoped to the owner, so nobody can share someone else's voice."""
+    with connection() as conn:
+        cur = conn.execute(
+            "UPDATE supporter_voices SET shared = ?"
+            " WHERE id = ? AND caregiver_user_id = ?",
+            (1 if shared else 0, voice_row_id, caregiver_user_id),
+        )
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def get_supporter_voice(voice_row_id: str) -> dict | None:
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM supporter_voices WHERE id = ?", (voice_row_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_supporter_voice(voice_row_id: str) -> None:
+    """Remove the local record. The caller deletes the upstream model first.
+
+    Revocation has to be real: §7.2's hardest objection is what happens when a
+    relationship ends or the person dies, so this must not leave a usable model
+    behind on the provider.
+    """
+    with connection() as conn:
+        conn.execute("DELETE FROM supporter_voices WHERE id = ?", (voice_row_id,))
+        conn.commit()

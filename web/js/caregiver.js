@@ -465,7 +465,9 @@ function renderVisibility(profile) {
   const ladder = profile?.ladder || {};
   const t2 = !!ladder.tier_2_visible_to_caregiver;
   const t3 = !!ladder.tier_3_visible_to_caregiver;
-  const name = profile?.name || 'this person';
+  // COPY: "your member" is the product's noun when no real name is available.
+  // Never "patient" or "client" — this is a relationship, not a caseload.
+  const name = profile?.name || 'your member';
 
   // Name the person rather than saying "the user": the markup is written for
   // Sam, and a real caregiver of a different account should read their own name.
