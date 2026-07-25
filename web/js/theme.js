@@ -23,6 +23,10 @@
 (function () {
   const KEY = 'threshold-theme';
   const root = document.documentElement;
+  const defaultTheme =
+    root.dataset.defaultTheme === 'light' || root.dataset.defaultTheme === 'dark'
+      ? root.dataset.defaultTheme
+      : null;
 
   /**
    * Apply a theme.
@@ -51,12 +55,13 @@
 
   // Apply before first paint. This line is the whole reason the file is not
   // deferred.
-  apply(stored());
+  apply(stored() || defaultTheme);
 
   /** What the user would see right now, resolving "follow the OS" to a value. */
   function effective() {
     const s = stored();
     if (s) return s;
+    if (defaultTheme) return defaultTheme;
     return window.matchMedia?.('(prefers-color-scheme: light)').matches
       ? 'light'
       : 'dark';

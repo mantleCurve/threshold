@@ -106,8 +106,17 @@ class LadderConfig(BaseModel):
 
     tier_3_visible_to_caregiver: bool = False
     tier_2_visible_to_caregiver: bool = False
-    missed_checkins_to_elevate: int = 2
-    silence_seconds_to_escalate: int = 20
+    # Bounded at the MODEL, not only at the HTTP boundary.
+    #
+    # These were bare ints. silence_seconds_to_escalate=0 makes every Tier 3
+    # evaluation escalate instantly to Tier 4 — a config value that inverts the
+    # safety behaviour of the whole ladder. missed_checkins_to_elevate=0 pins
+    # everyone at Tier 1 permanently. The HTTP route clamped both, but the store
+    # did not, so any row written by seed, migration, or a future writer was
+    # trusted. models.py is documented as the single source of truth, so the
+    # constraint belongs here where every path gets it.
+    missed_checkins_to_elevate: int = Field(default=2, ge=1, le=10)
+    silence_seconds_to_escalate: int = Field(default=20, ge=5, le=300)
 
 
 class UserProfile(BaseModel):

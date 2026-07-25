@@ -52,6 +52,7 @@ from app.schemas import (
 # opinions that will disagree under maintenance.
 from app.deps import (
     Listener,
+    _broadcast,          # the ONE broadcaster — see the note below
     _generate,
     authenticated_user_id,
     caregiver_event_projection,
@@ -118,48 +119,17 @@ def _current_tier(user_id: str) -> Tier:
     return _tiers.get(user_id, Tier.BASELINE)
 
 
-async def _broadcast(payload: dict) -> None:
-    """Push a ladder event to the connected SSE clients ENTITLED to receive it.
-
-    Delegates the decision to `app.deps.visible_to`, which is the single
-    authorization predicate in the app. Filtering happens HERE, on the server,
-    before the payload is serialised — an unauthorised listener's socket never
-    carries the bytes at all.
-
-    This used to be an unconditional fan-out to every connected queue, with the
-    caregiver page dropping the events that were not about the person it was
-    watching. That meant one user's tier reasons, escalation prose and account
-    id were delivered to every listener on the deployment, including anonymous
-    ones, and "privacy" was a line of JavaScript that anyone reading the network
-    tab could ignore. Client-side filtering is a rendering preference; it is
-    never a privacy boundary.
-
-    Payloads with no `user_id` (the demo `reset` notice) are about the
-    deployment rather than about a person, and go to everyone.
-
-    Uses put_nowait and tolerates failure: a slow or dead listener must never block a
-    tier transition. In this product, delivery to a dashboard is strictly less
-    important than the escalation itself continuing to run.
-
-    Args:
-        payload: The SSE payload. `user_id` names the subject and `tier` the
-            integer tier reached.
-    """
-    subject_id = payload.get("user_id")
-    # A ladder payload with a malformed tier is treated as Tier 5 so it still
-    # reaches a linked caregiver. Failing toward telling someone is right for a
-    # broken EMERGENCY and merely noisy for a broken calm event, and only one of
-    # those two mistakes can cost a life (PRD §4.2).
-    tier = Tier(payload["tier"]) if isinstance(payload.get("tier"), int) else Tier.UNRESPONSIVE
-
-    for listener in list(_listeners):
-        if subject_id is not None and not visible_to(listener.user_id, subject_id, tier):
-            continue
-        try:
-            listener.queue.put_nowait(payload)
-        except Exception:  # pragma: no cover - defensive; a full queue is not fatal
-            pass
-
+# `_broadcast` is deliberately NOT defined here.
+#
+# It used to be, and that duplicate was a live privacy leak: this module's copy
+# called visible_to() WITHOUT live=True, while deps.py passed it. Every real SSE
+# push runs through whatever this module binds, so the deps.py fix — Tier 2
+# cravings are never pushed to a caregiver — never reached production, and the
+# test guarding it passed because it exercised the deps.py function that nothing
+# called. A green suite over an open leak.
+#
+# There is now exactly one broadcaster, imported from deps below. If you find
+# yourself about to redefine it here, that is the bug.
 
 def _record(user_id: str, result: TriageResult, source: str) -> Event:
     """Apply a triage decision: update the live tier and append to the audit log.

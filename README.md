@@ -30,7 +30,12 @@ pip install -r requirements.txt
 
 # The generative layer needs an OpenRouter key. Without it the app runs fully,
 # but every AI surface reports "AI offline" rather than inventing text.
-export OPENROUTER_API_KEY=sk-or-...
+export OPENROUTER_API_KEY=sk-or-...       # generative surfaces
+export RESEND_API_KEY=re_...              # registration email codes
+export ELEVENLABS_API_KEY=sk_...          # optional: cloud + supporter voices
+export THRESHOLD_SECRET=$(openssl rand -hex 32)   # stable session signing
+export THRESHOLD_DEMO_MODE=true           # enables POST /api/reset
+export THRESHOLD_HTTPS=true               # only when served over HTTPS
 
 python3 -m uvicorn app.main:app --reload --port 8600
 ```
@@ -95,8 +100,18 @@ Data    app/store.py      SQLite. Append-only event log, fully user-visible.
 
 ## Honesty about AI calls
 
-The judging rules disqualify canned responses presented as model output. Every AI
-surface in this app makes a real API call to Google Gemini via OpenRouter. When a call
-fails, the UI says so explicitly and labels any cached fallback as a fallback. A
-fallback never masquerades as a live generation — look for the `live` flag on every
-`Generation` object in `app/models.py`.
+The judging rules disqualify canned responses presented as model output. Every
+generative surface in this app makes a real API call to Google Gemini via
+OpenRouter.
+
+One endpoint is deliberately NOT generative: `/api/script/911` renders the
+emergency script from a deterministic template. It contains a home address, an
+apartment number and a door entry code, and those facts must be reproduced
+character-for-character and must work with the network down. A model is the
+wrong tool for reciting an address, so it is not used there — and the response
+says so, carrying `deterministic: true` rather than pretending to be a
+generation.
+
+When a generative call fails, the UI says so explicitly and labels any cached
+fallback as a fallback. A fallback never masquerades as a live generation — look
+for the `live` flag on every `Generation` object in `app/models.py`.

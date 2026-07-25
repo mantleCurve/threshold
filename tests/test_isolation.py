@@ -700,3 +700,50 @@ def test_deletion_reports_what_it_removed(client, world):
 def anyio_backend():
     """Pin the async tests to asyncio; the app has no trio dependency."""
     return "asyncio"
+
+
+# ---------------------------------------------------------------------------
+# The broadcaster the app actually uses
+# ---------------------------------------------------------------------------
+def test_the_app_uses_exactly_one_broadcaster():
+    """Guards against the duplicate that made every other push test meaningless.
+
+    `app/main.py` once defined its own `_broadcast` that shadowed the one in
+    `deps.py`. The two differed in one argument — main's omitted `live=True` —
+    so Tier 2 cravings were pushed to caregivers in production while the tests
+    below, which exercise `deps._broadcast`, went green. A passing suite over an
+    open privacy leak.
+
+    Asserting on the bound module rather than on behaviour is deliberate: the
+    behavioural tests cannot detect this class of bug by construction, because
+    they call the function directly rather than through a route.
+    """
+    from app import deps, main
+
+    assert main._broadcast is deps._broadcast, (
+        "main.py has rebound _broadcast — every SSE privacy test below is now "
+        "testing a function the app does not call"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_craving_is_not_pushed_through_the_real_route(world):
+    """End-to-end version of the Tier 2 rule, through the code path routes use.
+
+    The sibling test calls `deps._broadcast` directly. This one goes through
+    whatever `main` has bound, so it fails if the duplicate ever returns.
+    """
+    from app import main
+
+    store.put_ladder(world["sam"].id, LadderConfig(tier_2_visible_to_caregiver=True))
+    sarah = register_listener(world["sarah"].id)
+
+    await main._broadcast(
+        {
+            "type": "tier",
+            "tier": int(Tier.CRAVING),
+            "reason": "r",
+            "user_id": world["sam"].id,
+        }
+    )
+    assert drain(sarah) == [], "a craving reached a caregiver's live stream"

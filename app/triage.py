@@ -174,6 +174,68 @@ _CLAUSE_SPLIT = re.compile(r"[,.;:!?\n]| but | and then | though | however ")
 _APOSTROPHES = str.maketrans({"’": "'", "ʼ": "'", "‘": "'", "`": "'"})
 
 
+# ---------------------------------------------------------------------------
+# Context suppressors
+# ---------------------------------------------------------------------------
+# Enumerating innocuous completions inside each pattern does not converge: the
+# "took" row already excluded trash, laundry, dishes and bins, and "recycling"
+# still slipped through. These are the three CONTEXTS in which a matched phrase
+# is systematically not a disclosure, checked once against the whole utterance
+# rather than bolted onto every row.
+#
+# Each is scoped narrowly on purpose. A suppressor that is too broad silently
+# disables a safety signal, which is the more dangerous failure — so these match
+# explicit framing only, never mere sentiment.
+
+# Reported as a past event, not a present one. "Ten years ago I overdosed" is
+# autobiography; escalating on it teaches people not to tell you their history.
+_PAST_TENSE = re.compile(
+    r"\b(years?|months?|weeks?|days?)\s+ago\b"
+    r"|\b(last|previous)\s+(year|month|week|night|time|summer|winter)\b"
+    r"|\bback\s+(then|in\s+\d{4}|in\s+the\s+day)\b"
+    r"|\bwhen\s+i\s+was\s+(a\s+)?(kid|young|\d+)\b"
+    r"|\bused\s+to\b|\bin\s+\d{4}\b|\bhistory\s+of\b",
+    re.IGNORECASE,
+)
+
+# Hypothetical or quoted rather than asserted.
+_HYPOTHETICAL = re.compile(
+    r"\bwhat\s+if\b|\bif\s+i\s+(ever|were|was)\b|\bhypothetically\b"
+    r"|\bthe\s+(song|lyric|film|movie|book|line)\s+(goes|says)\b"
+    r"|\b(he|she|they)\s+said\s+[\"']",
+    re.IGNORECASE,
+)
+
+# Figurative intensifiers. "Dying of laughter", "gasping at the price".
+_FIGURATIVE = re.compile(
+    r"\bdying\s+(of|for|to)\s+\w"
+    r"|\bgasping\s+at\b"
+    r"|\bnodding\s+(along|in\s+agreement|off\s+to\s+sleep)\b"
+    r"|\bblue\s+(from|with)\s+\w"
+    r"|\b(paint|painted|dye|dyed|ink)\w*\b.*\b(blue|grey|gray|purple)\b"
+    r"|\b(blue|grey|gray|purple)\b.*\b(paint|shirt|nails?|dress|wall|car|sky)\b"
+    r"|\bwent\s+grey\s+years\b"
+    r"|\bchoking\s+up\b|\brattling\s+(around|on)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_suppressed(text: str) -> str | None:
+    """Return the suppressing context, or None if the utterance stands.
+
+    Deliberately checked AFTER a signal matches rather than before: the cost of
+    running three regexes on a matched utterance is nothing, and keeping the
+    signal table readable matters more.
+    """
+    if _PAST_TENSE.search(text):
+        return "reported as a past event"
+    if _HYPOTHETICAL.search(text):
+        return "hypothetical or quoted"
+    if _FIGURATIVE.search(text):
+        return "figurative usage"
+    return None
+
+
 @dataclass
 class Signal:
     """One row of the phrase table. Rendered verbatim on the `/ladder` screen.
@@ -280,14 +342,31 @@ SIGNALS: list[Signal] = [
         label="suicidal intent",
         tier=Tier.EMERGENCY,
         pattern=(
-            r"\b(kill|killing)\s+(myself|my\s?self)\b"
-            r"|\bend(ing)?\s+(my|it)\s+(life|all)\b"
+            # THIRD PERSON IS NOT OPTIONAL HERE. The bystander surface — the
+            # one outside the auth wall — is used by someone standing over
+            # another person, so "he's going to kill himself" must escalate
+            # exactly as "I am" does. Every other Tier 4 row was built this way;
+            # these rows were added later and missed it.
+            r"\b(kill|killing)\s+(myself|my\s?self|himself|herself|themselves|"
+            r"themself|yourself)\b"
+            r"|\bend(ing|ed)?\s+(my|his|her|their|your|it)\s+(life|all)\b"
             r"|\bend(ing)?\s+it\s+(tonight|now|today)\b"
-            r"|\btak(e|ing)\s+my\s+own\s+life\b"
+            r"|\btak(e|ing|en)\s+(my|his|her|their)\s+own\s+life\b"
+            # Indirect ideation — the phrasings that precede attempts, and the
+            # ones people actually use. "I don't want to be here anymore"
+            # matched while "I don't want to be alive" did not: a one-word
+            # difference across a lethal boundary.
+            r"|\bbetter\s+off\s+(dead|without\s+me)\b"
+            r"|\bno\s+(point|reason)\s+(anymore|any\s?more|in\s+living|to\s+go\s+on)\b"
+            r"|\btop\s+(myself|himself|herself)\b"
+            r"|\bsaid\s+my\s+goodbyes\b|\bwritten\s+(letters|a\s+note)\b"
+            r"|\bwant\s+it\s+to\s+(stop|end)\s+forever\b"
+            r"|\bkms\b"
             r"|\bsuicid(e|al)\b"
             r"|\bnot\s+be\s+(here|alive)\s+(anymore|any\s?more|tomorrow)\b"
             r"|\bwant\s+to\s+die\b"
-            r"|\bdon'?t\s+want\s+to\s+(live|be\s+here|wake\s+up)\b"
+            r"|\bdon'?t\s+want\s+to\s+(live|be\s+here|be\s+alive|wake\s+up|"
+            r"go\s+on|exist)\b"
         ),
         negatable=False,  # see the note above — deliberately not negatable
         example="I am ending my life right now",
@@ -295,7 +374,8 @@ SIGNALS: list[Signal] = [
     Signal(
         label="self-harm intent",
         tier=Tier.EMERGENCY,
-        pattern=r"\b(hurt|harm|cut)\s+(myself|my\s?self)\b",
+        pattern=r"\b(hurt|harm|cut)\s+(myself|my\s?self|himself|herself|"
+                r"themselves|themself)\b",
         negatable=False,
         example="I am going to hurt myself",
     ),
@@ -308,11 +388,12 @@ SIGNALS: list[Signal] = [
         pattern=(
             # Anchored to SUBSTANCES. An unanchored "took all/the whole"
             # matched "I took all the trash out", which is housework.
-            r"\btook\s+(all|every|the\s+whole|a\s+whole)\s+"
-            r"(of\s+)?(the\s+|my\s+|them|it)?"
+            r"\b(took|taken)\s+(all|every|the\s+whole|a\s+whole)\s+"
+            r"(of\s+)?(the\s+|my\s+|his\s+|her\s+|their\s+|them|it)?"
             r"(pills?|bottle|script|bag|tabs?|dose|doses|meds|medication|"
             r"benzos?|xanax|oxys?|percs?|klonopin|methadone|subs?)\b"
-            r"|\ball\s+(of\s+)?(the\s+|my\s+)?(pills|bottle|script|bag)\b"
+            r"|\ball\s+(of\s+)?(the\s+|my\s+|his\s+|her\s+|their\s+)?"
+            r"(pills|bottle|script|bag)\b"
         ),
         negatable=False,
         example="I took all the pills",
@@ -327,7 +408,12 @@ SIGNALS: list[Signal] = [
     Signal(
         label="not breathing",
         tier=Tier.EMERGENCY,
-        pattern=r"\b(not|no|stopped)\s+breathing\b",
+        # Contractions and progressive forms. "he isn't breathing" and "he's
+        # barely breathing" both returned Tier 0 — the second is arguably the
+        # more urgent, since it describes respiratory depression in progress.
+        pattern=r"\b(not|no|stopped|stopping|barely|hardly|isn'?t|ain'?t|"
+                r"wasn'?t|aren'?t)\s+breath(ing|e)\b"
+                r"|\bbreathing\s+(problem|trouble|difficulty|issues?)\b",
         negatable=False,
         example="he's not breathing",
     ),
@@ -347,7 +433,14 @@ SIGNALS: list[Signal] = [
             # "wake up" only counts when it is about rousing a person NOW.
             # "she won't wake up early for work" is a complaint about a
             # schedule; the trailing qualifier excludes it.
-            r"\b(wo'?n'?t|will not|can'?t|cannot|not)\s+wake\s+(up|him|her|them)\b"
+            r"\b(wo'?n'?t|will not|can'?t|cannot|not|isn'?t|ain'?t|aren'?t|"
+            r"is\s+not)\s+wak(e|ing)\s+(up|him|her|them)\b"
+            # The scheduling exclusion, restored — it was dropped when the
+            # contraction forms were added. "She won't wake up early for work"
+            # is a complaint about a schedule, not an unrousable person.
+            r"(?!\s+(early|late|before|until|on|for|in|at|tomorrow|today|"
+            r"till|any\s+earlier))"
+            r"|\bout\s+cold\b|\bnot\s+getting\s+up\b|\bgone\s+under\b"
             r"(?!\s+(early|late|before|until|on|for|in|at|tomorrow|today))"
             r"|\bunresponsive\b|\bnot\s+respond(ing|s)?\b"
             # Present sense only: "he passed out" / "passing out" is happening.
@@ -381,7 +474,7 @@ SIGNALS: list[Signal] = [
             # ambulance. Cyanosis is only meaningful on a person.
             r"\b(lips?|face|skin|fingers?|nails?|hands?|they|he|she)"
             r"(?:'?s|'?re)?\s+"
-            r"(is|are|was|were|look(s|ed|ing)?|went|turn(ed|ing)?|going)?\s*"
+            r"(is|are|was|were|look(s|ed|ing)?|went|gone|turn(ed|ing)?|going)?\s*"
             r"(blue|grey|gray|purple|ashen)\b"
         ),
         example="his lips are blue",
@@ -396,41 +489,49 @@ SIGNALS: list[Signal] = [
         # different (and usually self-resolving) event from agonal respiration.
         pattern=r"\b(gurgl(e|ing)|snor(e|ing)\s+(weird|strange|funny|loudly)|"
                 r"gasping|rattling)\b"
-                r"|\bchoking\b(?!\s+on\b)",
+                # The original guard excluded every "choking on X" — but
+                # "choking on vomit" is aspiration during an overdose, which is
+                # exactly the case that matters. Only the innocuous objects are
+                # excluded now.
+                r"|\bchoking\b(?!\s+on\s+(my|a|the|his|her)?\s*"
+                r"(drink|water|food|coffee|tea|laughter|it)\b)",
         example="he's gurgling",
     ),
     Signal(
         label="overdose disclosure",
         tier=Tier.EMERGENCY,
-        pattern=r"\b(overdosing|overdosed|od'?ing|took too much|took too many|"
+        pattern=r"\b(overdosing|overdosed|od'?(ing|d|\'d)|took too much|took too many|"
+                r"taken too (much|many)|"
                 r"too much of it)\b",
         example="I think I'm overdosing",
     ),
     Signal(
         label="call for help",
         tier=Tier.EMERGENCY,
-        # The negative lookahead is the "helper/helpful/helped" guard. \b alone
-        # would not help here (it matches inside "helper" at the p/e boundary
-        # only, not the word end) — hence the explicit suffix exclusion.
+        # WHITELIST, not a blacklist.
         #
-        # PRD §4.1 treats an unqualified cry for help as an emergency, and the
-        # cost of asking "did you mean it?" is a delayed 911 call. But a bare
-        # \bhelp\b was the lowest-precision row in the entire table: "help me
-        # find my keys" and "can you help me with something" both dispatched an
-        # ambulance. That is not a safe-direction failure — routine false alarms
-        # are precisely what teaches someone to stop talking to the app, and a
-        # user who goes quiet is the risk this product exists to prevent
-        # (PRD §12, the concealment risk).
+        # Two rounds of exclusion lists failed here: enumerating the innocuous
+        # completions of "help me ..." never terminated ("help me pack" slipped
+        # a twelve-verb list), and the nested lookahead that replaced it
+        # suppressed "help me please", which is a genuine cry.
         #
-        # So the second lookahead excludes the transitive, mundane-request sense
-        # of the word: "help me <verb> ..." / "help with ...". An urgent cry
-        # ("help", "help me", "I need help", "somebody help") has no object and
-        # still matches at Tier 4. This narrows precision, not recall.
+        # The shape of the distinction is simple and finite in the other
+        # direction: an urgent cry for help takes NO object. So the cry forms
+        # are listed exhaustively and anchored to the whole clause. Anything
+        # with a task attached — "help me move house", "can you help me?" —
+        # simply is not on the list and cannot match.
+        #
+        # Listing what DOES fire also means a reader of /ladder can see the
+        # complete set, which is the transparency this table exists for.
         pattern=(
-            r"\bhelp\b"
-            r"(?!\s*(ed|ful|er|ing|s)\b)"
-            r"(?!\s+(me\s+)?(find|with|understand|figure|fix|carry|move|"
-            r"pick|choose|decide|write|think|remember|get\s+\w+\s+from)\b)"
+            r"^\s*(please\s+)?(somebody|someone|anybody|anyone)?\s*"
+            r"help"
+            r"(\s+(me|us))?"
+            r"(\s+(please|now|quick|quickly))?"
+            r"\s*[!.?]*\s*$"
+            r"|\bi\s+need\s+help\b"
+            r"|\bneed\s+help\s+(now|please|here)\b"
+            r"|\bhelp\s+(me|us)\s+(please|now)\b"
         ),
         example="help",
     ),
@@ -637,6 +738,20 @@ def match_signals(utterance: str | None) -> list[SignalMatch]:
         return []
 
     text = _normalise(utterance)
+
+    # Context suppression runs against the WHOLE utterance, before clause
+    # splitting. That is the point: the old per-row lookaheads sat inside a
+    # single clause, so "last year, I passed out at a party" escalated — the
+    # comma split the qualifier away from the phrase it qualified, and the
+    # lookahead could never see it. Whole-utterance context is the only scope
+    # at which "this is a memory, not an event" is decidable.
+    #
+    # Suppression is total rather than tier-reducing. A figurative or
+    # historical statement is not weak evidence of an emergency; it is not
+    # evidence of one at all.
+    if _is_suppressed(text):
+        return []
+
     # Split into clauses first so negation scope is bounded: "I didn't sleep,
     # I used" must still escalate. Empty fragments from adjacent punctuation
     # are dropped.
@@ -1144,7 +1259,13 @@ def evaluate(
                 f"{silent_seconds}s (threshold {silence_threshold}s) and the "
                 f"device has reported no movement. Treating as unresponsive."
             )
-            return _result(Tier.UNRESPONSIVE, previous, reason, profile, matched_label)
+            # matched_signal is None: this tier came from SENSORS, not speech.
+            # Passing the utterance's label through made the reason read
+            # "disclosed use" when nothing of the sort had been said, and put a
+            # signal name on the caregiver screen that contradicted the reason
+            # beside it.
+            return _result(Tier.UNRESPONSIVE, previous, reason, profile, None)
+
         # Silent but still moving: Tier 4, not 5. Guarded so an already-Tier-5
         # user who is silent but has started moving again is not walked
         # backwards to Tier 4 — de-escalation never happens on sensor data.
@@ -1153,7 +1274,8 @@ def evaluate(
                 f"Tier {previous.value} -> Tier 4: disclosed use with no "
                 f"response for {silent_seconds}s (threshold {silence_threshold}s)."
             )
-            return _result(Tier.EMERGENCY, previous, reason, profile, matched_label)
+            # As above: sensor-derived tier, so no speech signal is attached.
+            return _result(Tier.EMERGENCY, previous, reason, profile, None)
 
     # ---- 3: escalating phrase -------------------------------------------
     # Strictly `>`: a phrase can only ever raise the tier, never lower it. A

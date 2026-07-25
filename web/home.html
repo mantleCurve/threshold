@@ -1,147 +1,213 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-default-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Threshold — recovery and overdose prevention</title>
-<meta name="description" content="A recovery and overdose-prevention platform for people navigating substance use, and the people who love them.">
+<meta name="description" content="A recovery and overdose-prevention platform for people navigating substance use, and the people they trust.">
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/light.css">
 <link rel="stylesheet" href="/static/css/tiers.css">
 <link rel="stylesheet" href="/static/css/public.css">
 <script src="/static/js/theme.js"></script>
 </head>
-<body class="public" data-tier="0">
-<a href="#main" class="skip">Skip to content</a>
+<body class="public public--archive" data-tier="0">
+<a href="#main" class="skip-link">Skip to content</a>
 
-<header class="masthead">
-  <a href="/home" style="text-decoration:none;color:var(--ink);font-weight:600">Threshold</a>
+<div class="crisis-strip" aria-label="Emergency actions">
+  <p>Emergency? Do not read the site.</p>
+  <a href="tel:911" class="crisis-strip__call">Call 911</a>
+  <a href="tel:988">988 crisis line</a>
+  <a href="/bystander">Bystander mode · no login</a>
+</div>
+
+<header class="masthead masthead--archive">
+  <a href="/home" class="brand" aria-label="Threshold home">
+    <span class="brand__mark" aria-hidden="true"></span>
+    <span>Threshold</span>
+  </a>
   <nav aria-label="Primary">
-    <a href="/home" aria-current="page">Home</a>
-    <a href="/emergency">Emergency</a>
+    <a href="#how-it-works">How it works</a>
     <a href="/bystander">Overdose guide</a>
     <a href="/contact">Contact</a>
-    <a href="/login">Sign in</a>
-  
-    <span data-theme-toggle></span>
   </nav>
+  <div class="masthead__account">
+    <a href="/login" class="account-link">Sign in</a>
+    <a href="/register" class="btn btn-primary btn-pill">Create account</a>
+    <span data-theme-toggle></span>
+  </div>
 </header>
 
-<main class="public-main" id="main">
+<main id="main">
+  <section class="archive-hero">
+    <div class="archive-wrap archive-hero__grid">
+      <div class="archive-hero__copy">
+        <p class="archive-kicker">Overdose prevention · recovery</p>
+        <h1>Most of recovery is an ordinary Tuesday.</h1>
+        <p class="archive-hero__lede">
+          A panic button only starts working after something has already gone
+          wrong. Threshold is built for the ordinary days that decide whether
+          the bad night ever arrives, without telling anyone what you did not
+          agree to share.
+        </p>
+        <div class="archive-actions">
+          <a href="/register" class="btn btn-primary btn-pill btn-large">Create my account</a>
+          <a href="/login" class="btn btn-pill btn-large">Sign in</a>
+          <a href="/register/caregiver" class="text-action">I have an invite code</a>
+        </div>
+        <ul class="archive-proofline" aria-label="Product commitments">
+          <li>Works without AI</li>
+          <li>No continuous location tracking</li>
+          <li>Caregiver access by consent</li>
+        </ul>
+      </div>
 
-  <!-- HERO. States what the product is in one sentence. The emergency route is
-       present above the fold on every page, including the marketing one — someone
-       in crisis should never have to parse a value proposition first. -->
-  <section class="hero">
-    <h1 class="display">Most of recovery is an ordinary Tuesday.</h1>
-    <p class="lede">
-      Threshold is a recovery and overdose-prevention platform for people
-      navigating substance use, and for the people who love them. It works
-      hardest on the days when nothing appears to be wrong.
-    </p>
-    <div class="hero-actions">
-      <a href="/login" class="btn btn-primary">Open the app</a>
-      <a href="/emergency" class="btn btn-emergency">Emergency numbers</a>
+      <div class="product-window" aria-label="Preview of the Threshold member app">
+        <div class="product-window__top">
+          <span>Tuesday · 09:12</span>
+          <span class="product-window__status">Baseline</span>
+        </div>
+        <div class="product-window__body">
+          <p class="product-window__eyebrow">Your ladder · nothing is happening</p>
+          <p class="product-window__message">
+            You are at Baseline. Nothing was sent, and nobody was notified.
+          </p>
+          <div class="product-window__rungs" aria-hidden="true">
+            <span class="is-active">0</span><span>1</span><span>2</span>
+            <span>3</span><span>4</span><span>5</span>
+          </div>
+          <div class="product-window__voice">
+            <span class="product-window__mic" aria-hidden="true"></span>
+            <span>Hold to talk</span>
+          </div>
+          <dl class="product-window__facts">
+            <div><dt>Caregiver</dt><dd>Not notified</dd></div>
+            <div><dt>Location</dt><dd>Not requested</dd></div>
+            <div><dt>Event log</dt><dd>Yours only</dd></div>
+          </dl>
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- THE THESIS. This is the argument the product is making, stated plainly. -->
-  <section style="padding:var(--sp-7) 0">
-    <p class="label">Why this exists</p>
-    <p class="lede" style="max-width:52ch;margin-top:var(--sp-3)">
-      A panic button activates after something has already gone wrong. That
-      describes about one percent of the time a person spends in recovery.
-      We built for the other ninety-nine.
-    </p>
+  <section class="archive-stats" aria-label="What Threshold protects">
+    <div class="archive-wrap archive-stats__grid">
+      <div><strong>6</strong><span>visible escalation states</span></div>
+      <div><strong>0</strong><span>model decisions in the safety path</span></div>
+      <div><strong>1</strong><span>tap to stand down a false alarm</span></div>
+    </div>
+  </section>
 
-    <div class="grid">
-      <article class="card">
-        <h3>Tolerance Guard</h3>
+  <section class="archive-section" id="how-it-works">
+    <div class="archive-wrap">
+      <div class="archive-heading">
+        <p class="archive-kicker archive-kicker--plain">The escalation ladder</p>
+        <h2>Six states. As danger rises, the interface takes things away.</h2>
         <p>
-          Tolerance collapses within days of abstinence. The remembered dose does
-          not. The period after detox, hospital discharge, or release is among the
-          highest-risk windows in medicine — so we speak up during it, unprompted,
-          before anything happens.
+          Below the threshold, Threshold asks. At a medical emergency, it
+          clears the screen around the actions that matter.
         </p>
+      </div>
+      <div class="ladder-demo">
+        <ol class="ladder-demo__rungs">
+          <li><b>0</b><span>Baseline</span><small>Nothing is happening</small></li>
+          <li><b>1</b><span>Elevated</span><small>A check-in was missed</small></li>
+          <li><b>2</b><span>Craving</span><small>You asked for support</small></li>
+          <li><b>3</b><span>Active use</span><small>Threshold stays with you</small></li>
+          <li class="ladder-demo__line"><span>Threshold sits here</span></li>
+          <li><b>4</b><span>Medical emergency</span><small>911 and naloxone guidance</small></li>
+          <li><b>5</b><span>Unresponsive</span><small>Bystander guidance takes over</small></li>
+        </ol>
+        <div class="emergency-preview">
+          <p>Tier 4 · Medical emergency</p>
+          <a href="tel:911">CALL 911 <small>Press once. Hold the phone to your ear.</small></a>
+          <div>
+            <strong>At the same time</strong>
+            <span>Give naloxone now.</span>
+          </div>
+          <small>Everything else leaves the screen.</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="archive-section archive-section--soft">
+    <div class="archive-wrap archive-pillars">
+      <article>
+        <div>
+          <p class="archive-kicker archive-kicker--plain">Before the crisis</p>
+          <h2>Tolerance changes quietly. Threshold says the number out loud.</h2>
+          <p>
+            A hospital stay, detox, incarceration, or time away from use can
+            reduce tolerance quickly. The remembered amount does not change
+            with it.
+          </p>
+        </div>
+        <div class="archive-visual archive-visual--tolerance">
+          <span>11 days since tolerance reset</span>
+          <strong>Your previous amount may now be fatal.</strong>
+        </div>
       </article>
-      <article class="card">
-        <h3>An escalation ladder you control</h3>
-        <p>
-          Six states, from Baseline to Unresponsive. You see the whole ladder and
-          you decide who is told what, at which tier. One exception, disclosed up
-          front and not overridable: if we believe you are in medical danger, we
-          alert someone.
-        </p>
-      </article>
-      <article class="card">
-        <h3>Emergency scripts, ready in advance</h3>
-        <p>
-          Under acute stress nobody can produce a coherent report. Your address,
-          your unit number, your door code, written down while you were calm and
-          read back to you one line at a time when you are not.
-        </p>
-      </article>
-      <article class="card">
-        <h3>Your legal protection, said out loud</h3>
-        <p>
-          The most common reason people do not call 911 during an overdose is fear
-          of arrest. Most US states protect the caller. We say so first, before
-          anything else, without being asked.
-        </p>
-      </article>
-      <article class="card">
-        <!-- COPY: "people, not endpoints". Avoids "users" here, which is now
-             reserved for the internal role string; the product's noun for the
-             person in recovery is "member". -->
-        <h3>Caregivers are people, not endpoints</h3>
-        <p>
-          An alert at 3am wakes someone into maximum panic. Ours arrives with what
-          happened, what the system already did, what to do in the next sixty
-          seconds — and what not to say.
-        </p>
-      </article>
-      <article class="card">
-        <h3>Real voices, not synthetic ones</h3>
-        <p>
-          The Memory Vault plays actual recordings made by the people who love you.
-          We deliberately do not clone anyone's voice. Consent given in calm is
-          spent in crisis, and a disclosure label does not survive that moment.
-        </p>
+      <article>
+        <div>
+          <p class="archive-kicker archive-kicker--plain">Consent as structure</p>
+          <h2>A caregiver cannot add themselves to your life.</h2>
+          <p>
+            You generate the invitation. You decide what they see below the
+            emergency threshold. Revoking the link takes effect immediately.
+          </p>
+        </div>
+        <div class="archive-visual">
+          <span>Caregiver visibility</span>
+          <ul>
+            <li>Craving <b>Off</b></li>
+            <li>Active use <b>Your choice</b></li>
+            <li>Medical emergency <b>Always</b></li>
+          </ul>
+        </div>
       </article>
     </div>
   </section>
 
-  <!-- WHAT WE DIDN'T BUILD. Stating the declined choices is the most credible
-       thing a product in this space can do. -->
-  <section style="padding:var(--sp-6) 0;border-top:1px solid var(--line)">
-    <p class="label">What we deliberately did not build</p>
-    <div class="doc" style="margin-top:var(--sp-4)">
-      <ul>
-        <li><strong>No sobriety scores, streaks, or gamification.</strong> A person
-        who reports honestly while using is a person we can still protect. A person
-        who hides is not.</li>
-        <li><strong>No model-generated legal claims.</strong> Immunity law varies
-        substantially between states. A hallucinated legal protection is the worst
-        thing this product could tell someone. Our legal data is static and
-        human-reviewed.</li>
-        <li><strong>No AI in the safety-critical path.</strong> Triage is a
-        deterministic, tested state machine. The generative layer writes language;
-        it never decides whether you are in danger.</li>
-        <li><strong>No data sold, ever, to anyone.</strong> Not to insurers, not to
-        employers, not to law enforcement.</li>
-      </ul>
+  <section class="archive-not-built">
+    <div class="archive-wrap">
+      <p class="archive-kicker">What we deliberately did not build</p>
+      <h2>Trust comes from the things the product refuses to do.</h2>
+      <div class="archive-not-built__grid">
+        <article><h3>No sobriety score</h3><p>No streak to protect and no penalty for telling the truth.</p></article>
+        <article><h3>No hidden caregiver view</h3><p>The member can see the same permission boundary the caregiver receives.</p></article>
+        <article><h3>No AI safety decision</h3><p>Language can adapt. The escalation state remains deterministic and auditable.</p></article>
+        <article><h3>No continuous location trail</h3><p>Location is requested only when the emergency interface needs it.</p></article>
+      </div>
     </div>
   </section>
 
+  <section class="archive-cta">
+    <div class="archive-wrap archive-cta__inner">
+      <div>
+        <h2>Set it up on a calm day. That is the whole idea.</h2>
+        <p>Member and caregiver accounts use verified email. Phone numbers are not OTP-verified.</p>
+      </div>
+      <div class="archive-actions">
+        <a href="/register" class="btn btn-large btn-pill archive-cta__primary">Create member account</a>
+        <a href="/register/caregiver" class="btn btn-large btn-pill archive-cta__secondary">Caregiver with a code</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="public-footer">
   <div class="footer-inner">
-    <nav aria-label="Product">
-      <span class="label">Product</span>
-      <a href="/home">Home</a>
+    <nav aria-label="Account">
+      <span class="label">Account</span>
       <a href="/login">Sign in</a>
+      <a href="/register">Member registration</a>
+      <a href="/register/caregiver">Caregiver registration</a>
+    </nav>
+    <nav aria-label="Safety">
+      <span class="label">Safety</span>
       <a href="/bystander">Overdose guide</a>
+      <a href="/emergency">Emergency numbers</a>
     </nav>
     <nav aria-label="Legal">
       <span class="label">Legal</span>
@@ -149,16 +215,10 @@
       <a href="/privacy">Privacy</a>
       <a href="/data-deletion">Delete my data</a>
     </nav>
-    <nav aria-label="Contact">
-      <span class="label">Contact</span>
-      <a href="/contact">Contact us</a>
-      <a href="/emergency">Emergency numbers</a>
-    </nav>
   </div>
   <p class="footer-crisis">
-    In immediate danger? <a href="tel:911">Call 911</a> &nbsp;·&nbsp;
-    Crisis support: <a href="tel:988">988</a> &nbsp;·&nbsp;
-    <a href="/emergency">All emergency numbers</a>
+    In immediate danger? <a href="tel:911">Call 911</a> ·
+    Crisis support: <a href="tel:988">988</a>
   </p>
 </footer>
 </body>

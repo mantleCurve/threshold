@@ -83,8 +83,8 @@ work: composing, selecting, summarising, adapting reading level.
 
 **Why.** It answers "what happens when the model is wrong?" in one sentence: the
 model was never asked. A hallucinated tier would mean either a missed overdose or
-a false alarm that teaches someone to stop talking to the app. 136 tests cover
-the state machine specifically.
+a false alarm that teaches someone to stop talking to the app. 171 tests cover
+the state machine specifically; 490 across the suite.
 
 **Cost.** Keyword triage is less capable than an LLM at understanding intent, and
 we document that limit honestly in the module docstring rather than hiding it.
@@ -144,9 +144,13 @@ is no hidden log.
 
 ## Deliberate omissions
 
-- **No caregiver voice cloning.** Consent is obtained in calm and spent in
-  crisis; a disclosure label is doing legal work, not cognitive work, on someone
-  intoxicated or panicking. Real recordings instead.
+- **Voice cloning: declined, then rebuilt with the consent inverted.** The
+  original objection was that consent is obtained in calm and spent in crisis.
+  The shipped version answers that by making the *person being cloned* the one
+  who consents, in their own session, with the wording stored verbatim — and by
+  keeping recording, sharing and using as three separate decisions, each
+  revocable. That is a genuinely stronger position than either shipping it
+  naively or declining it. Memory Vault clips remain real recordings.
 - **No always-on listening.** It would materially improve Tier 5 detection and is
   the single largest trust cost available — an always-open microphone is a reason
   to leave the phone in another room, and a phone in another room protects nobody.

@@ -251,9 +251,21 @@ async def _broadcast(payload: dict) -> None:
     tier = Tier(payload["tier"]) if isinstance(payload.get("tier"), int) else Tier.UNRESPONSIVE
 
     for listener in list(_listeners):
-        if subject_id is not None and not visible_to(
-            listener.user_id, subject_id, tier, live=True
-        ):
+        # visible_to reads the ladder from SQLite for tiers 2-3. A locked
+        # or unavailable database would otherwise raise straight out of
+        # _broadcast — after the event was already recorded — and return a 500
+        # on the crisis screen. Delivery to a dashboard must never be able to
+        # abort an escalation, which is what this function's contract promises.
+        # Failing closed here is right: a dropped notification is recoverable,
+        # a 500 mid-emergency is not. Tiers 4/5 short-circuit before the read.
+        try:
+            permitted = visible_to(
+                listener.user_id, subject_id, tier, live=True
+            )
+        except Exception:
+            log.warning("visibility check failed; withholding this event")
+            permitted = tier >= Tier.EMERGENCY  # never drop an emergency
+        if subject_id is not None and not permitted:
             continue
         try:
             listener.queue.put_nowait(payload)
