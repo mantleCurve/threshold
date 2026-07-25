@@ -114,6 +114,7 @@
 /* ----------------------------------------------------------------- reset - */
 
 *, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html {
   -webkit-text-size-adjust: 100%;
@@ -553,6 +554,7 @@ summary:focus-visible,
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--ink);
+  text-decoration: none;
 }
 .rail__brand span { color: var(--accent); transition: color var(--dur-3) var(--ease); }
 

@@ -20,10 +20,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Your ladder — Threshold</title>
 <meta name="color-scheme" content="dark">
-<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/base.css?v=20260725-3">
 <link rel="stylesheet" href="/static/css/light.css">
 <link rel="stylesheet" href="/static/css/tiers.css">
-<link rel="stylesheet" href="/static/css/pages.css">
+<link rel="stylesheet" href="/static/css/pages.css?v=20260725-3">
 <script src="/static/js/theme.js"></script>
 </head>
 <body>
@@ -32,13 +32,13 @@
 <div class="shell">
 
   <aside class="rail">
-    <p class="rail__brand">Thresh<span>o</span>ld</p>
+    <a class="rail__brand" href="/" aria-label="Back to dashboard">Thresh<span>o</span>ld</a>
     <p class="rail__reason" style="border-top: 0; padding-top: 0;">
       You are setting the rules the system will follow. It will not go beyond them.
     </p>
     <div class="rail__foot">
       <nav class="nav" aria-label="Sections">
-        <a href="/">Today</a>
+        <a href="/">Dashboard</a>
         <a href="/ladder">Event log</a>
         <a href="/onboarding" aria-current="page">Your ladder settings</a>
       </nav>
@@ -61,6 +61,7 @@
     <div class="promise stack-loose">
 
       <header class="stack-tight">
+        <a class="btn btn--quiet dashboard-return" href="/">← Back to dashboard</a>
         <p class="label">The agreement</p>
         <h1 class="display" style="font-size: var(--step-5);">
           Here is exactly what will happen, and when.
@@ -490,7 +491,7 @@
   </main>
 </div>
 
-<script src="/static/js/onboarding.js" type="module"></script>
+<script src="/static/js/onboarding.js?v=20260725-3" type="module"></script>
 <!-- Wires the "who Threshold sounds like" picker above. Separate module so the
      whole supporter-voice consent chain can be audited in one file. -->
 <script src="/static/js/voice.js" type="module"></script>

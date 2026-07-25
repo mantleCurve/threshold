@@ -153,12 +153,14 @@
 
 .btn-primary {
   background: var(--accent);
-  color: var(--accent-ink);
+  color: #f7fbfa;
   border-color: transparent;
-  font-weight: 600;
+  font-weight: 650;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.22);
 }
 .btn-primary:hover {
-  background: color-mix(in oklab, var(--accent) 88%, white);
+  background: color-mix(in oklab, var(--accent) 90%, black);
+  color: #f7fbfa;
   border-color: transparent;
 }
 

@@ -396,18 +396,25 @@ function renderContacts(contacts) {
 
   host.innerHTML = editableContacts
     .map((c, index) => {
-      return `
-        <li>
-          <p><strong>${escapeHtml(c.name)}</strong> · ${escapeHtml(c.relation)}</p>
-          <p class="hint">${escapeHtml(c.destination)} · emailed at Tier 4 and Tier 5</p>
-          <div class="row">
+      const ordering = editableContacts.length > 1
+        ? `
             <button type="button" class="btn btn--quiet" data-contact-up="${index}"
                     ${index === 0 ? 'disabled' : ''}>Move up</button>
             <button type="button" class="btn btn--quiet" data-contact-down="${index}"
-                    ${index === editableContacts.length - 1 ? 'disabled' : ''}>Move down</button>
-            <button type="button" class="btn btn--quiet" data-contact-remove="${index}">
-              Remove
-            </button>
+                    ${index === editableContacts.length - 1 ? 'disabled' : ''}>Move down</button>`
+        : '';
+      return `
+        <li>
+          <div class="contact-entry">
+            <p><strong>${escapeHtml(c.name)}</strong>${c.relation ? ` · ${escapeHtml(c.relation)}` : ''}</p>
+            <p class="hint">${escapeHtml(c.destination)}</p>
+            <p class="contact-entry__delivery">Emergency email · Tier 4 and Tier 5</p>
+            <div class="contact-entry__actions">
+              ${ordering}
+              <button type="button" class="btn btn--quiet" data-contact-remove="${index}">
+                Remove
+              </button>
+            </div>
           </div>
         </li>`;
     })

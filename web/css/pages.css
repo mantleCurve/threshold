@@ -530,6 +530,33 @@
   text-transform: uppercase;
 }
 
+.dashboard-return {
+  align-self: flex-start;
+  margin-bottom: var(--sp-3);
+}
+
+.contact-entry {
+  min-width: 0;
+  display: grid;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-3);
+}
+.contact-entry p { margin: 0; }
+.contact-entry .hint { overflow-wrap: anywhere; }
+.contact-entry__delivery {
+  color: var(--ink-3);
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  letter-spacing: 0.02em;
+}
+.contact-entry__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-1);
+}
+
 /* Sticky save bar. Fully opaque with a real top border and a bleed to the pane
    edges, so table rows scroll UNDER it cleanly instead of ghosting through. */
 .save-bar {
