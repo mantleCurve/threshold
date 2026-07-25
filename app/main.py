@@ -916,6 +916,7 @@ async def post_profile(request: Request, body: ProfileUpdateRequest) -> dict:
         profile = UserProfile(
             id=uuid.uuid4().hex,
             name=(actor.username if actor else "You"),
+            address="",
         )
 
     changes = body.model_dump(exclude_unset=True)
