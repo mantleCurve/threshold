@@ -164,8 +164,29 @@ CREATE TABLE IF NOT EXISTS users (
     -- CHECK constraint keeps role values honest at the storage layer, so a bad
     -- role cannot be introduced by a future code path that skips validation.
     role          TEXT NOT NULL CHECK (role IN ('user', 'caregiver')),
+    email         TEXT UNIQUE COLLATE NOCASE,
+    email_verified INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL    -- ISO-8601
 );
+
+-- Registration details awaiting an emailed one-time code. Passwords are
+-- already scrypt-hashed before they reach this table; verification codes are
+-- HMAC digests, never plaintext.
+CREATE TABLE IF NOT EXISTS pending_registrations (
+    id             TEXT PRIMARY KEY,
+    email          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    username       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash  TEXT NOT NULL,
+    salt           TEXT NOT NULL,
+    role           TEXT NOT NULL CHECK (role IN ('user', 'caregiver')),
+    invite_code    TEXT NOT NULL DEFAULT '',
+    code_digest    TEXT NOT NULL,
+    expires_at     TEXT NOT NULL,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+    ON users(email) WHERE email IS NOT NULL;
 
 -- One profile per user. Address fields are split out (unit / entry code /
 -- cross street) because PRD §5 needs them read aloud separately to a 911
@@ -419,6 +440,8 @@ def init_db() -> None:
 _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("vault_clips", "owner_user_id", "TEXT"),
     ("events", "actions_planned", "TEXT NOT NULL DEFAULT '[]'"),
+    ("users", "email", "TEXT"),
+    ("users", "email_verified", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 
@@ -463,6 +486,7 @@ def drop_all() -> None:
             DROP TRIGGER IF EXISTS events_no_delete;
             DROP TABLE IF EXISTS events;
             DROP TABLE IF EXISTS generation_cache_owners;
+            DROP TABLE IF EXISTS pending_registrations;
             DROP TABLE IF EXISTS invites;
             DROP TABLE IF EXISTS caregiver_links;
             DROP TABLE IF EXISTS vault_clips;
@@ -505,6 +529,8 @@ class UserRecord:
     password_hash: str
     salt: str
     role: str
+    email: str | None
+    email_verified: bool
     created_at: datetime
 
 
@@ -515,6 +541,8 @@ def create_user(
     password_hash: str,
     salt: str,
     role: str,
+    email: str | None = None,
+    email_verified: bool = False,
     created_at: datetime | None = None,
 ) -> UserRecord:
     """Insert a new account row.
@@ -542,9 +570,19 @@ def create_user(
     created = created_at or datetime.now()
     with connection() as conn:
         conn.execute(
-            "INSERT INTO users (id, username, password_hash, salt, role, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (id, username, password_hash, salt, role, created.isoformat()),
+            "INSERT INTO users"
+            " (id, username, password_hash, salt, role, email, email_verified, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                id,
+                username,
+                password_hash,
+                salt,
+                role,
+                email.lower() if email else None,
+                int(email_verified or not email),
+                created.isoformat(),
+            ),
         )
     return UserRecord(
         id=id,
@@ -552,6 +590,8 @@ def create_user(
         password_hash=password_hash,
         salt=salt,
         role=role,
+        email=email.lower() if email else None,
+        email_verified=bool(email_verified or not email),
         created_at=created,
     )
 
@@ -571,6 +611,8 @@ def _row_to_user(row: sqlite3.Row) -> UserRecord:
         password_hash=row["password_hash"],
         salt=row["salt"],
         role=row["role"],
+        email=row["email"],
+        email_verified=bool(row["email_verified"]),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
 
@@ -621,6 +663,104 @@ def list_users() -> list[UserRecord]:
     with connection() as conn:
         rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
     return [_row_to_user(r) for r in rows]
+
+
+@dataclass(frozen=True)
+class PendingRegistration:
+    """Hashed registration material waiting for an emailed code."""
+
+    id: str
+    email: str
+    username: str
+    password_hash: str
+    salt: str
+    role: str
+    invite_code: str
+    code_digest: str
+    expires_at: datetime
+    attempts: int
+    created_at: datetime
+
+
+def put_pending_registration(pending: PendingRegistration) -> PendingRegistration:
+    """Replace any prior pending attempt for this email or username."""
+    with connection() as conn:
+        conn.execute(
+            "DELETE FROM pending_registrations WHERE email = ? OR username = ?",
+            (pending.email.lower(), pending.username),
+        )
+        conn.execute(
+            """
+            INSERT INTO pending_registrations
+                (id, email, username, password_hash, salt, role, invite_code,
+                 code_digest, expires_at, attempts, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pending.id,
+                pending.email.lower(),
+                pending.username,
+                pending.password_hash,
+                pending.salt,
+                pending.role,
+                pending.invite_code,
+                pending.code_digest,
+                pending.expires_at.isoformat(),
+                pending.attempts,
+                pending.created_at.isoformat(),
+            ),
+        )
+    return pending
+
+
+def get_pending_registration(email: str) -> PendingRegistration | None:
+    """Load the current pending registration for an email address."""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM pending_registrations WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        ).fetchone()
+    if row is None:
+        return None
+    return PendingRegistration(
+        id=row["id"],
+        email=row["email"],
+        username=row["username"],
+        password_hash=row["password_hash"],
+        salt=row["salt"],
+        role=row["role"],
+        invite_code=row["invite_code"],
+        code_digest=row["code_digest"],
+        expires_at=datetime.fromisoformat(row["expires_at"]),
+        attempts=row["attempts"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def increment_pending_attempts(email: str) -> int:
+    """Increment and return verification failures for one pending signup."""
+    with connection() as conn:
+        conn.execute(
+            "UPDATE pending_registrations SET attempts = attempts + 1"
+            " WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        )
+        row = conn.execute(
+            "SELECT attempts FROM pending_registrations"
+            " WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        ).fetchone()
+    return int(row["attempts"]) if row else 0
+
+
+def delete_pending_registration(email: str) -> bool:
+    """Delete a pending signup after completion, expiry, or send failure."""
+    with connection() as conn:
+        cur = conn.execute(
+            "DELETE FROM pending_registrations WHERE email = ? COLLATE NOCASE",
+            (email.strip().lower(),),
+        )
+    return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

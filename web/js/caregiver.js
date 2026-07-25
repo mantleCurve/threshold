@@ -381,22 +381,16 @@ function renderNotToSay(text) {
  * dropped — a silently omitted action is the one that gets duplicated.
  */
 const ACTION_LABELS = {
-  speak: 'Spoke to them out loud',
-  play_vault_clip: 'Played a recorded message from someone they trust',
-  offer_contact: 'Offered to reach one of their people',
-  // NOT 'started calling' — this build places no calls and sends no messages.
-  // A caregiver who believes the contact list was called may assume someone
-  // else is already on the way and delay acting themselves.
-  fire_contact_tree: 'Contact list displayed on their screen — not called',
-  show_911_script: 'Put their personalised 911 script on screen',
-  show_good_samaritan: 'Showed the Good Samaritan protection for their state',
-  naloxone_prompt: 'Told them to use naloxone now',
-  bystander_hail: 'Called out loud through the speaker for anyone nearby',
-  arm_bystander_mode: 'Turned the phone into a bystander guide on tap',
-  rescue_breathing: 'Started the rescue-breathing rhythm',
-  start_grounding: 'Started a grounding exercise',
-  acquire_location: 'Acquired their location for responders',
-  keep_awake: 'Kept the screen awake so the phone stays usable',
+  caregiver_screen_notified: 'Delivered the alert to a connected caregiver screen',
+  location_displayed: 'Displayed coordinates on their phone to read aloud',
+  bystander_hail_started: 'Called out through the phone for a nearby person',
+  wake_lock_acquired: 'Confirmed that the emergency screen will stay awake',
+  '911_script_displayed': 'Displayed the local personalised 911 script',
+  vault_clip_played: 'Started a consented Memory Vault recording',
+  grounding_started: 'Started the grounding exercise',
+  rescue_breathing_started: 'Started the rescue-breathing rhythm',
+  naloxone_prompt_displayed: 'Displayed and spoke the naloxone prompt',
+  good_samaritan_displayed: 'Displayed the reviewed state legal summary',
 };
 
 /**
@@ -422,7 +416,7 @@ function renderAlreadyDid(events) {
 
   if (!rows.length) {
     host.innerHTML =
-      '<li><p>Nothing has needed an automatic response yet.</p></li>';
+      '<li><p>No automatic action has a confirmed completion receipt yet. Call 911 if help may be needed.</p></li>';
     return;
   }
 
@@ -575,8 +569,8 @@ function notice(text) {
  * session by the server: the listener is tagged with the signed-in account when
  * it subscribes, and `app/deps.py::visible_to` decides per recipient whether an
  * event may be written to it — own events always, a linked caregiver's watched
- * user at tier 4/5 always (PRD §4.2) and at tier 3 only with the watched
- * person's consent, tiers 0-2 never, anonymous listeners never.
+   * user at tier 4/5 always (PRD §4.2), and at tiers 2/3 only with the watched
+   * person's explicit setting. Tiers 0/1 and anonymous listeners receive none.
  *
  * This page used to receive EVERY user's events and drop the ones whose
  * `user_id` did not match, which meant other people's tier reasons and account
@@ -600,6 +594,14 @@ function initStream() {
     try { data = JSON.parse(e.data); } catch { return; }
 
     if (data.type === 'reset') { window.location.reload(); return; }
+    if (data.type === 'receipt') {
+      try {
+        const state = await api('/api/state');
+        renderAlreadyDid(state.events);
+        renderRecent(state.events);
+      } catch { /* A receipt may appear on the next reconnect. */ }
+      return;
+    }
     if (data.type !== 'tier') return;
 
     renderTier(data.tier, data.reason);
@@ -676,17 +678,40 @@ async function boot() {
     return;
   }
 
+  renderVisibility(state.profile);
+
+  if (state.visible === false) {
+    currentTier = null;
+    document.body.dataset.tier = '0';
+    document.querySelectorAll('[data-tier-step]').forEach((el) => {
+      el.setAttribute('data-state', 'ahead');
+      el.setAttribute('aria-current', 'false');
+    });
+    setText('alert-tier', 'No shared alert');
+    setText(
+      'brief-text',
+      'This member has no active tier that they chose to share. Their current state and history remain private.',
+    );
+    setText('brief-meta', 'Privacy boundary active');
+    renderAlreadyDid([]);
+    renderRecent([]);
+    const refresh = document.getElementById('brief-refresh');
+    if (refresh) refresh.disabled = true;
+    const callMember = document.getElementById('alert-call-user');
+    if (callMember) callMember.hidden = true;
+    return;
+  }
+
   renderTier(state.tier, '');
   renderAlreadyDid(state.events);
   renderRecent(state.events);
-  renderVisibility(state.profile);
 
   // The watched person's name, from the profile rather than the markup default.
   if (state.profile?.name) setText('watched-name', state.profile.name);
 
-  // The first contact in the tree is the "Call Sam" number. Display-only in
-  // this build — the contact tree is not dialled automatically here.
-  const tel = state.profile?.contacts?.[0]?.channel;
+  // The member's own number is a distinct field. A contact-tree destination
+  // belongs to somebody else and must never be used as "Call the member".
+  const tel = state.profile?.phone;
   const callBtn = document.getElementById('alert-call-user');
   if (callBtn && state.profile?.name) {
     callBtn.textContent = `Call ${state.profile.name}`;

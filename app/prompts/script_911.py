@@ -1,10 +1,8 @@
 """Personalised 911 script — the words a terrified person reads to a dispatcher.
 
 What this module does:
-    Builds the prompt that produces short discrete lines, meant to be shown one at a
-    time on screen and read aloud under extreme stress. The personalisation is the
-    point: the address, unit, cross street, and entry instruction are already on the
-    screen, so nobody has to remember them while someone is not breathing.
+    Renders short deterministic dispatcher lines from validated profile fields.
+    Address and entry facts never pass through a model or a network call.
 
 Why the output shape is so constrained:
     Under acute stress, reading comprehension collapses to roughly a glance. Anything
@@ -21,8 +19,9 @@ What this module deliberately does NOT do:
       to a dispatcher is worse than a missing line.
     - No network access, no `genai` import.
 
-    This task uses `google/gemini-2.5-pro` (CONTRACT.md), not the fast model: it is
-    generated ahead of need and cached, so accuracy beats latency here.
+    The older implementation built a model prompt and first called it during an
+    emergency. A prompt asking a model to copy an address exactly is not a
+    guarantee, so the executable path is now local.
 """
 
 from __future__ import annotations
@@ -120,3 +119,25 @@ def build(profile: UserProfile, situation: str = "") -> tuple[str, str]:
             or "Someone is unresponsive after using and may have overdosed.",
         ),
     )
+
+
+def render(profile: UserProfile) -> str:
+    """Render the emergency script locally, preserving profile facts exactly."""
+    lines = ["Someone may have overdosed and is not responding normally."]
+    if profile.address:
+        lines.append(f"Address: {profile.address}")
+    if profile.unit:
+        lines.append(f"Unit: {profile.unit}")
+    if profile.cross_street:
+        lines.append(f"Cross street: {profile.cross_street}")
+    if profile.entry_code:
+        lines.append(f"Entry instruction: use code {profile.entry_code}")
+    lines.append("They may not be breathing normally.")
+    lines.append("They are not responding normally.")
+    lines.append(
+        "Naloxone is available."
+        if profile.naloxone_on_hand
+        else "Naloxone availability is unknown."
+    )
+    lines.append("Please stay on the line and tell me what to do.")
+    return "\n".join(lines)

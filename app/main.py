@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from app import deps, store, triage
 from app.security import SecurityMiddleware
 from app.models import Contact, Event, Tier, TriageResult, UserProfile
+from app.schemas import ActionReceiptRequest
 
 # The authorization primitives live in `app.deps` so that this module, the routers
 # under `app.routes`, and any future surface all make the SAME privacy decision.
@@ -48,6 +49,8 @@ from app.deps import (
     Listener,
     _generate,
     authenticated_user_id,
+    caregiver_event_projection,
+    caregiver_profile_projection,
     events_for_wire,
     resolve_subject,
     visible_to,
@@ -573,6 +576,12 @@ async def get_state(request: Request) -> dict:
     profile = store.get_profile(user_id)
     tier = _current_tier(user_id)
     events = events_for_wire(user_id, limit=50)
+    caller_id = authenticated_user_id(request)
+    caller = store.get_user(caller_id) if caller_id else None
+    caregiver_view = bool(caller and caller.role == "caregiver")
+    caregiver_visible = bool(
+        caregiver_view and visible_to(caller_id, user_id, tier)
+    )
 
     # Report AI availability honestly. The UI renders an explicit "AI offline" state
     # rather than silently substituting canned text — passing off a fallback as a
@@ -587,12 +596,28 @@ async def get_state(request: Request) -> dict:
 
     from app.models import TIER_NAMES
 
+    if caregiver_view:
+        profile_payload = caregiver_profile_projection(
+            profile, tier, visible=caregiver_visible
+        )
+        event_payload = caregiver_event_projection(
+            events, caller_id, user_id, visible=caregiver_visible
+        )
+    else:
+        profile_payload = profile.model_dump(mode="json") if profile else None
+        event_payload = [e.model_dump(mode="json") for e in events]
+
     return {
-        "tier": int(tier),
-        "tier_name": TIER_NAMES[tier],
+        "visible": caregiver_visible if caregiver_view else True,
+        "tier": int(tier) if not caregiver_view or caregiver_visible else None,
+        "tier_name": (
+            TIER_NAMES[tier]
+            if not caregiver_view or caregiver_visible
+            else "No shared alert"
+        ),
         "ai_online": ai_online,
-        "profile": profile.model_dump(mode="json") if profile else None,
-        "events": [e.model_dump(mode="json") for e in events],
+        "profile": profile_payload,
+        "events": event_payload,
         # The order contract, stated on the wire rather than only in a docstring.
         # Consumers had drifted into disagreeing about this — one sliced the
         # wrong end, another reversed an already-reversed list — and a caregiver
@@ -732,6 +757,44 @@ async def post_rescind(request: Request) -> dict:
     return payload
 
 
+@app.post("/api/action-receipt")
+async def post_action_receipt(
+    request: Request, body: ActionReceiptRequest
+) -> dict:
+    """Append a client-confirmed execution receipt to the immutable log."""
+    user_id = authenticated_user_id(request)
+    actor = store.get_user(user_id) if user_id else None
+    if actor is None:
+        raise HTTPException(status_code=401, detail="Sign in to record an action.")
+    if actor.role != "user":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the member's own device may confirm member-side actions.",
+        )
+
+    event = Event(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        at=_now(),
+        tier=_current_tier(user_id),
+        trigger_source="execution_receipt",
+        reason=body.detail or "The member's device confirmed an action completed.",
+        actions_planned=[],
+        actions_taken=[body.action],
+    )
+    store.append_event(event)
+    await _broadcast(
+        {
+            "type": "receipt",
+            "tier": int(event.tier),
+            "user_id": user_id,
+            "at": event.at.isoformat(),
+            "actions_taken": event.actions_taken,
+        }
+    )
+    return {"ok": True, "event": event.model_dump(mode="json")}
+
+
 # ---------------------------------------------------------------------------
 # Server-sent events
 # ---------------------------------------------------------------------------
@@ -821,18 +884,26 @@ async def sse(request: Request) -> StreamingResponse:
 async def get_script_911(request: Request) -> dict:
     """The personalised emergency script: their address, their unit, their entry code.
 
-    Generated during calm and read aloud one line at a time during crisis, because
-    under acute stress people cannot produce a coherent report from memory (PRD §6.1).
+    Rendered locally and read aloud one line at a time during crisis. Dispatcher
+    facts never pass through a language model.
     """
     owner_id = _require_own_profile(request)
     profile = store.get_profile(owner_id)
     from app.prompts import script_911
 
-    # Ownership is recorded because this is THE sensitive cached artefact: the
-    # text contains a home address, an apartment number and a door entry code.
-    # /data-deletion promises to remove cached generations, and without an owner
-    # the file would survive the account that produced it.
-    return await _generate(script_911.build, fast=False, owner_id=owner_id, profile=profile)
+    if profile is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Complete your emergency profile before generating this script.",
+        )
+    return {
+        "text": script_911.render(profile),
+        "live": False,
+        "deterministic": True,
+        "model": "local-template",
+        "latency_ms": 0,
+        "error": "Not model-generated; dispatcher facts were rendered locally.",
+    }
 
 
 @app.get("/api/script/refusal")
@@ -940,6 +1011,13 @@ async def get_caregiver_brief(request: Request) -> dict:
     user_id = resolve_subject(request)
     profile = store.get_profile(user_id)
     tier = _current_tier(user_id)
+    caller_id = authenticated_user_id(request)
+    caller = store.get_user(caller_id) if caller_id else None
+    if caller and caller.role == "caregiver" and not visible_to(caller_id, user_id, tier):
+        raise HTTPException(
+            status_code=403,
+            detail="There is no alert the member has chosen to share right now.",
+        )
     events = events_for_wire(user_id, limit=10)
     from app.prompts import caregiver_brief
 

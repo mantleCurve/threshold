@@ -90,7 +90,7 @@ const ACTION_LABELS = {
   speak: 'Spoke to you',
   play_vault_clip: 'Played a voice you know',
   offer_contact: 'Offered to reach one person',
-  fire_contact_tree: 'Called your contacts, in order',
+  fire_contact_tree: 'Contact-tree delivery scheduled',
   show_911_script: 'Showed your 911 script',
   show_good_samaritan: 'Showed your Good Samaritan protection',
   naloxone_prompt: 'Told you to use naloxone',
@@ -98,8 +98,21 @@ const ACTION_LABELS = {
   arm_bystander_mode: 'Armed bystander mode',
   rescue_breathing: 'Started the rescue-breathing rhythm',
   start_grounding: 'Started a grounding exercise',
-  acquire_location: 'Acquired your location',
-  keep_awake: 'Kept the screen awake',
+  acquire_location: 'Location display scheduled',
+  keep_awake: 'Screen wake-lock request scheduled',
+};
+
+const COMPLETED_ACTION_LABELS = {
+  caregiver_screen_notified: 'Alert delivered to a connected caregiver screen',
+  location_displayed: 'Coordinates displayed on this device',
+  bystander_hail_started: 'Phone called out for a nearby person',
+  wake_lock_acquired: 'Screen wake lock acquired',
+  '911_script_displayed': 'Local personalised 911 script displayed',
+  vault_clip_played: 'Consented Memory Vault recording started',
+  grounding_started: 'Grounding exercise started',
+  rescue_breathing_started: 'Rescue-breathing rhythm started',
+  naloxone_prompt_displayed: 'Naloxone prompt displayed and spoken',
+  good_samaritan_displayed: 'Reviewed state legal summary displayed',
 };
 
 /* -------------------------------------------------------------------------- */
@@ -136,8 +149,11 @@ function renderRow(e) {
   const at = new Date(e.at);
   const tier = Number(e.tier);
 
-  const actions = (e.actions_taken || [])
-    .map((k) => `<li>${escapeHtml(ACTION_LABELS[k] || k)}</li>`)
+  const completed = (e.actions_taken || [])
+    .map((k) => `<li>Completed: ${escapeHtml(COMPLETED_ACTION_LABELS[k] || k)}</li>`);
+  const planned = (e.actions_planned || [])
+    .map((k) => `<li>Planned: ${escapeHtml(ACTION_LABELS[k] || k)}</li>`);
+  const actions = [...completed, ...planned]
     .join('');
 
   return `

@@ -292,6 +292,7 @@ function runEmergencySequence() {
   // instead of pressing the button. The line must stay calm, but it has to put
   // the action back in the hands of whoever is holding the phone.
   say('Stay with me. Press the big button to call 911. If you have Narcan, use it now.');
+  recordReceipt('naloxone_prompt_displayed', 'Naloxone guidance was shown and spoken.');
 
   // t=5s — do not wait for a reply. Continue without user input.
   //
@@ -302,7 +303,6 @@ function runEmergencySequence() {
   emergencyTimers.push(setTimeout(() => {
     say('Finding your location to read out. Anyone watching on the caregiver screen can see this now.');
     acquireLocation();
-    addStatusLine('Alert shown on caregiver screens that are currently open');
     post('/api/sensor', { silent_seconds: 5, still: true }).catch(() => {});
   }, 5000));
 
@@ -347,12 +347,18 @@ function captionSpeech(text) {
  * Rule for anything added here: if you cannot point at the line of code that
  * performed the action and succeeded, it does not get written.
  */
-function addStatusLine(text) {
+function addStatusLine(text, action = '', detail = '') {
   const host = document.getElementById('takeover-status');
   if (!host) return;
   const li = document.createElement('li');
   li.textContent = text;
   host.appendChild(li);
+  if (action) recordReceipt(action, detail || text);
+}
+
+/** Persist a completed action separately from the triage plan. */
+function recordReceipt(action, detail = '') {
+  post('/api/action-receipt', { action, detail }).catch(() => {});
 }
 
 /**
@@ -373,10 +379,10 @@ function hailBystander() {
   speak(msg, { loud: true });
   const btn = document.getElementById('arm-bystander');
   if (btn) btn.hidden = false;
-
-  // Any tap anywhere opens the bystander guide — a stranger should not have to
-  // find a button.
-  document.addEventListener('click', openBystander, { once: true });
+  addStatusLine(
+    'Bystander guide armed and the phone called out for nearby help',
+    'bystander_hail_started',
+  );
 }
 
 function openBystander() { window.location.href = '/bystander'; }
@@ -391,7 +397,9 @@ function acquireLocation() {
       // coordinates displayed on THIS device for someone to read aloud to a
       // dispatcher. Nothing transmits them anywhere.
       addStatusLine(
-        `Location shown here to read aloud: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+        `Location shown here to read aloud: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+        'location_displayed',
+        'Coordinates were displayed on the member device for a caller to read aloud.',
       );
     },
     () => { /* Denied or unavailable — the address from the profile still stands. */ },
@@ -401,7 +409,16 @@ function acquireLocation() {
 
 let wakeLock = null;
 async function requestWakeLock() {
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* unsupported */ }
+  try {
+    wakeLock = await navigator.wakeLock?.request('screen');
+    if (wakeLock) {
+      addStatusLine(
+        'Screen wake lock acquired',
+        'wake_lock_acquired',
+        'The device confirmed that the emergency screen will stay awake.',
+      );
+    }
+  } catch { /* unsupported */ }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -787,9 +804,9 @@ function renderGeneration(targetId, gen) {
     el.innerHTML = `<p class="prose">${escapeHtml(gen?.error || 'Unavailable.')}</p>`;
     return;
   }
-  const badge = gen.live
-    ? ''
-    : ' <span class="unverified">offline fallback</span>';
+  const badge = gen.deterministic
+    ? ' <span class="badge">verified local</span>'
+    : (gen.live ? '' : ' <span class="unverified">offline fallback</span>');
   el.innerHTML =
     `<div class="prose">${escapeHtml(gen.text).replace(/\n/g, '<br>')}</div>${badge}`;
 }
@@ -816,6 +833,12 @@ async function loadScript911() {
   if (gen?.text) gen.text.split('\n').filter(Boolean).forEach((line, i) => {
     setTimeout(() => { captionSpeech(line); speak(line); }, i * 3500);
   });
+  if (gen?.text) {
+    addStatusLine(
+      'Personalised 911 script displayed',
+      '911_script_displayed',
+    );
+  }
 }
 
 async function loadTolerance() {
@@ -898,6 +921,7 @@ function startGrounding() {
   };
 
   render(0);
+  recordReceipt('grounding_started', 'The grounding exercise started on the member device.');
   // 12 seconds a step: long enough to actually look around and name five
   // things, which is the entire mechanism. Rushing it makes it decorative.
   GROUNDING_STEPS.slice(1).forEach((_, n) => {
@@ -917,7 +941,14 @@ async function loadVaultClip(context) {
     ${res.live === false ? '<span class="unverified">offline fallback</span>' : ''}`;
   // A real recording in a real voice. We do not synthesise the caregiver
   // (PRD §7.2) — if there is no audio file, the transcript stands on its own.
-  if (res.clip.audio_path) new Audio(res.clip.audio_path).play().catch(() => {});
+  if (res.clip.audio_path) {
+    new Audio(res.clip.audio_path).play()
+      .then(() => recordReceipt(
+        'vault_clip_played',
+        'A consented Memory Vault recording started playing.',
+      ))
+      .catch(() => {});
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1068,6 +1099,10 @@ async function loadSamaritan() {
     <p class="prose"><strong>What it does not cover:</strong> ${escapeHtml(rec.does_not_cover)}</p>
     ${rec.verified ? '' : '<p><span class="unverified">unverified — confirm locally</span></p>'}`;
   speak(rec.plain_language_line);
+  recordReceipt(
+    'good_samaritan_displayed',
+    'The reviewed state-specific Good Samaritan summary was displayed.',
+  );
 }
 
 /* -------------------------------------------------------------------------- */

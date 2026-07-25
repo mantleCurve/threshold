@@ -93,7 +93,13 @@ def _current_tier(user_id: str) -> Tier:
     return _tiers.get(user_id, Tier.BASELINE)
 
 
-def visible_to(recipient_id: str | None, subject_id: str, tier: Tier) -> bool:
+def visible_to(
+    recipient_id: str | None,
+    subject_id: str,
+    tier: Tier,
+    *,
+    live: bool = False,
+) -> bool:
     """Whether one account may receive another account's ladder event.
 
     THE PRIVACY BOUNDARY. Every event is filtered through this before its bytes
@@ -118,11 +124,10 @@ def visible_to(recipient_id: str | None, subject_id: str, tier: Tier) -> bool:
     * Tier 3 -> only with `tier_3_visible_to_caregiver`. Defaults to False. A
       user who fears their disclosure will be reported does not disclose; they
       use alone.
-    * Tiers 0-2 -> never, even to a linked caregiver, and even if the user set
-      `tier_2_visible_to_caregiver`. That flag governs what the caregiver page
-      may DISPLAY about the ladder's shape, not a live push at 3am. Craving is
-      not news; it is Tuesday, and waking someone for it is how the watched
-      person learns to stop naming it.
+    * Tier 2 -> only with `tier_2_visible_to_caregiver`. The setting has one
+      meaning everywhere: if it is off, neither state reads nor live delivery
+      reveal the tier.
+    * Tiers 0-1 -> never. There is no caregiver-facing work at those tiers.
 
     Args:
         recipient_id: The account behind the listening stream, or None.
@@ -151,7 +156,75 @@ def visible_to(recipient_id: str | None, subject_id: str, tier: Tier) -> bool:
         # unknown preference resolves toward silence rather than exposure.
         return bool(ladder and ladder.tier_3_visible_to_caregiver)
 
+    if tier is Tier.CRAVING:
+        # A craving is never PUSHED to a caregiver, even with the flag on.
+        #
+        # `tier_2_visible_to_caregiver` lets the caregiver surface describe the
+        # shape of the ladder when they go and look. It is not a subscription to
+        # craving alerts, and treating it as one would silently convert a
+        # disclosure preference into an alerting one the member never asked for.
+        #
+        # This matters more than it looks. The single most memorable moment in
+        # this product is the one where a member discloses a craving and the
+        # system deliberately does NOT wake anybody — because that restraint is
+        # what makes the member willing to say it at all (PRD P3, §12). A push
+        # notification at Tier 2 destroys exactly that.
+        if live:
+            return False
+        ladder = store.get_ladder(subject_id)
+        return bool(ladder and ladder.tier_2_visible_to_caregiver)
+
     return False
+
+
+def caregiver_profile_projection(profile, tier: Tier, *, visible: bool) -> dict | None:
+    """Return only profile fields a linked caregiver may receive.
+
+    A consented link grants a relationship, not blanket access to the member's
+    clinical and location record. The projection is built before JSON
+    serialisation so hidden values never reach the browser.
+    """
+    if profile is None:
+        return None
+
+    projected = {
+        "name": profile.name,
+        "ladder": {
+            "tier_2_visible_to_caregiver": profile.ladder.tier_2_visible_to_caregiver,
+            "tier_3_visible_to_caregiver": profile.ladder.tier_3_visible_to_caregiver,
+        },
+    }
+    if visible and tier >= Tier.EMERGENCY:
+        projected.update(
+            {
+                "address": profile.address,
+                "unit": profile.unit,
+                "entry_code": profile.entry_code,
+                "cross_street": profile.cross_street,
+                "naloxone_on_hand": profile.naloxone_on_hand,
+            }
+        )
+    return projected
+
+
+def caregiver_event_projection(
+    events: list[Event], caregiver_id: str, subject_id: str, *, visible: bool
+) -> list[dict]:
+    """Project an event history through the caregiver visibility policy."""
+    if not visible:
+        return []
+    return [
+        {
+            "at": event.at.isoformat(),
+            "tier": int(event.tier),
+            "trigger_source": event.trigger_source,
+            "reason": event.reason,
+            "actions_planned": list(event.actions_planned),
+            "actions_taken": list(event.actions_taken),
+        }
+        for event in events
+        if visible_to(caregiver_id, subject_id, event.tier)
+    ]
 
 
 async def _broadcast(payload: dict) -> None:
@@ -178,7 +251,9 @@ async def _broadcast(payload: dict) -> None:
     tier = Tier(payload["tier"]) if isinstance(payload.get("tier"), int) else Tier.UNRESPONSIVE
 
     for listener in list(_listeners):
-        if subject_id is not None and not visible_to(listener.user_id, subject_id, tier):
+        if subject_id is not None and not visible_to(
+            listener.user_id, subject_id, tier, live=True
+        ):
             continue
         try:
             listener.queue.put_nowait(payload)

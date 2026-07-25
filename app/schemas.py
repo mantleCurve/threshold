@@ -46,6 +46,8 @@ Error contract:
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Tier
@@ -223,6 +225,28 @@ class TierRequest(_StrictBody):
     """
 
     tier: Tier = Field(description="Target tier, 0-5. Values outside the ladder are 422.")
+
+
+class ActionReceiptRequest(_StrictBody):
+    """A client-confirmed action that actually completed.
+
+    The closed set prevents a caller from writing arbitrary prose into the
+    immutable audit log. These are execution facts, not triage plans.
+    """
+
+    action: Literal[
+        "caregiver_screen_notified",
+        "location_displayed",
+        "bystander_hail_started",
+        "wake_lock_acquired",
+        "911_script_displayed",
+        "vault_clip_played",
+        "grounding_started",
+        "rescue_breathing_started",
+        "naloxone_prompt_displayed",
+        "good_samaritan_displayed",
+    ]
+    detail: str = Field(default="", max_length=160)
 
 
 # --------------------------------------------------------------------------------------
