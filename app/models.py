@@ -46,14 +46,12 @@ class Action(BaseModel):
         "play_vault_clip",
         "offer_contact",
         "fire_contact_tree",
-        "show_911_script",
+        "show_emergency_script",
         "show_good_samaritan",
         "naloxone_prompt",
         # Surfaced when the trigger was a suicidal statement rather than a
-        # physical emergency. 988 is offered ALONGSIDE 911, not instead of it:
-        # a police response to a mental-health crisis carries its own
-        # well-documented risk of harm, so the person is given the crisis line
-        # as a real first option rather than only an emergency dispatch.
+        # physical emergency. India-wide Tele-MANAS support is offered alongside
+        # 112 rather than asking a language model to act as a crisis counsellor.
         "show_crisis_line",
         "bystander_hail",
         "arm_bystander_mode",
@@ -127,7 +125,7 @@ class UserProfile(BaseModel):
     unit: str = ""
     entry_code: str = ""
     cross_street: str = ""
-    state_code: str = "KY"  # drives the Good Samaritan brief lookup
+    state_code: str = "KA"  # Indian state code for regional emergency guidance
     substances: list[str] = Field(default_factory=list)
     naloxone_on_hand: bool = False
     ladder: LadderConfig = Field(default_factory=LadderConfig)

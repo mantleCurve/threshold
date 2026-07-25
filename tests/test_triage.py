@@ -728,7 +728,7 @@ class TestActions:
             ("naloxone_prompt", 0),
             ("acquire_location", 5),
             ("bystander_hail", 10),
-            ("show_911_script", 15),
+            ("show_emergency_script", 15),
             ("fire_contact_tree", 30),
         ],
     )
@@ -1115,13 +1115,12 @@ def test_negated_suicidal_statements_still_escalate(utterance):
 
 
 def test_suicidal_statement_surfaces_the_crisis_line_first():
-    """988 leads, because a police response to a mental-health crisis carries
-    its own documented risk of harm. 911 stays one tap away underneath."""
+    """Tele-MANAS leads while emergency services stay one tap away."""
     result = _triage.evaluate(
         _Tier.BASELINE, utterance="I am ending my life right now"
     )
     assert result.actions[0].kind == "show_crisis_line"
-    assert "988" in result.actions[0].detail
+    assert "14416" in result.actions[0].detail
     # The physical emergency actions still run: intent and overdose co-occur,
     # and dropping either set would be a guess about which is happening.
     assert any(a.kind == "naloxone_prompt" for a in result.actions)

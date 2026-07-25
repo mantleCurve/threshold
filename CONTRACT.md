@@ -77,7 +77,7 @@ POST /api/utterance  {text}         -> TriageResult + generated reply (SSE for s
 POST /api/sensor     {still, secs}  -> TriageResult
 POST /api/tier       {tier}         -> manual override (demo control), returns TriageResult
 POST /api/rescind                   -> one-tap false-alarm rescind, drops to Tier 1
-GET  /api/script/911                -> Generation (live gen, cached fallback)
+GET  /api/script/112                -> Generation (live gen, cached fallback)
 GET  /api/script/refusal            -> Generation
 GET  /api/tolerance                 -> Generation (proactive prevention message)
 GET  /api/legal/{state_code}        -> static statute record, never generated

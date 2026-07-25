@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 
 from app import auth, security, store
 from app.main import app
+from app.models import Event, Tier, UserProfile
 
 
 @pytest.fixture(autouse=True)
@@ -286,6 +287,111 @@ def test_member_creates_and_caregiver_redeems_over_http(client, member, caregive
     assert redeemed.status_code == 200
     assert redeemed.json()["watching"] == "member-one"
     assert store.is_linked(caregiver.id, member.id)
+
+
+def test_emailed_invite_is_stored_listed_and_delivered(
+    client, member, monkeypatch
+):
+    """The member can see the same code that Resend delivered."""
+    delivered = {}
+
+    async def fake_send(email, member_name, code, **_kwargs):
+        delivered.update(email=email, member_name=member_name, code=code)
+        return True, None
+
+    monkeypatch.setattr(
+        "app.routes.invites.email_delivery.send_caregiver_invitation",
+        fake_send,
+    )
+    _sign_in(client, "member-one")
+    created = client.post("/api/invite", json={"email": "care@example.com"})
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["email_sent"] is True
+    assert delivered["code"] == payload["code"]
+
+    listed = client.get("/api/invites").json()["invitations"]
+    assert listed[0]["code"] == payload["code"]
+    assert listed[0]["email"] == "care@example.com"
+    assert listed[0]["redeemed"] is False
+
+
+def test_member_can_resend_an_active_invitation(client, member, monkeypatch):
+    """Resend retains the code and confirms the destination."""
+    invite = store.create_invite(member.id, invited_email="old@example.com")
+    sent = []
+
+    async def fake_send(email, _member_name, code, **_kwargs):
+        sent.append((email, code))
+        return True, None
+
+    monkeypatch.setattr(
+        "app.routes.invites.email_delivery.send_caregiver_invitation",
+        fake_send,
+    )
+    _sign_in(client, "member-one")
+    response = client.post(
+        "/api/invite/resend",
+        json={"code": invite.code, "email": "new@example.com"},
+    )
+    assert response.json()["email_sent"] is True
+    assert sent == [("new@example.com", invite.code)]
+    assert store.get_invite(invite.code).invited_email == "new@example.com"
+
+
+def test_spent_invitation_cannot_be_resent(client, member, caregiver):
+    invite = store.create_invite(member.id, invited_email="care@example.com")
+    store.redeem_invite(invite.code, caregiver.id)
+    _sign_in(client, "member-one")
+    response = client.post(
+        "/api/invite/resend",
+        json={"code": invite.code, "email": "care@example.com"},
+    )
+    assert response.status_code == 409
+
+
+def test_role_specific_pages_redirect_to_the_correct_surface(client, member, caregiver):
+    _sign_in(client, "caregiver-one")
+    for path in ("/", "/app", "/onboarding"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/caregiver"
+
+    client.post("/api/auth/logout")
+    _sign_in(client, "member-one")
+    response = client.get("/caregiver", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app"
+
+
+def test_caregiver_sees_checkin_time_but_not_private_words(
+    client, member, caregiver
+):
+    """A linked caregiver gets proof of contact, not the transcript."""
+    store.put_profile(
+        member.id,
+        UserProfile(id="member-profile", name="Member One", address=""),
+    )
+    invite = store.create_invite(member.id)
+    store.redeem_invite(invite.code, caregiver.id)
+    private_words = "words that must never reach the caregiver"
+    store.append_event(
+        Event(
+            id="checkin-1",
+            user_id=member.id,
+            at=datetime.now(),
+            tier=Tier.BASELINE,
+            trigger_source="utterance",
+            reason=private_words,
+        )
+    )
+
+    _sign_in(client, "caregiver-one")
+    payload = client.get("/api/state").json()
+    assert payload["profile"]["name"] == "Member One"
+    assert payload["checkins"][0]["status"] == "completed"
+    assert payload["checkins"][0]["shared"] is False
+    assert private_words not in str(payload)
 
 
 def test_redeeming_an_invalid_code_over_http_says_why(client, caregiver):

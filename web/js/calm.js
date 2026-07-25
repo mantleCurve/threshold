@@ -152,13 +152,13 @@ function stopAll() {
  * for four seconds is coaching them toward the thing that is already killing
  * them, and a well-meaning bystander could easily start this exercise on a
  * person who is going quiet. At Tier 4+ the only correct instruction is to
- * call 911 and give naloxone.
+ * call 112 and give naloxone.
  */
 function guardTier(exerciseId) {
   const tier = Number(document.body.dataset.tier || 0);
   if (tier >= 4 && exerciseId === 'breathing') {
     paint(
-      'Not now — if someone may be overdosing, call 911 and give naloxone. ' +
+      'Not now. If someone may be overdosing, call 112 and give naloxone. ' +
       'Do not coach breath-holding.'
     );
     return false;

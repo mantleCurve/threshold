@@ -316,7 +316,7 @@ function renderNext60(text) {
     host.innerHTML =
       '<li><p class="step__title">Call them.</p>' +
       '<p class="step__body">The written steps are unavailable. If they do not ' +
-      'answer, or they answer and sound wrong, call 911.</p></li>';
+      'answer, or they answer and sound wrong, call 112.</p></li>';
     return;
   }
 
@@ -385,7 +385,7 @@ const ACTION_LABELS = {
   location_displayed: 'Displayed coordinates on their phone to read aloud',
   bystander_hail_started: 'Called out through the phone for a nearby person',
   wake_lock_acquired: 'Confirmed that the emergency screen will stay awake',
-  '911_script_displayed': 'Displayed the local personalised 911 script',
+  emergency_script_displayed: 'Displayed the personalised 112 script',
   vault_clip_played: 'Started a consented Memory Vault recording',
   grounding_started: 'Started the grounding exercise',
   rescue_breathing_started: 'Started the rescue-breathing rhythm',
@@ -416,7 +416,7 @@ function renderAlreadyDid(events) {
 
   if (!rows.length) {
     host.innerHTML =
-      '<li><p>No automatic action has a confirmed completion receipt yet. Call 911 if help may be needed.</p></li>';
+      '<li><p>No automatic action has a confirmed completion receipt yet. Call 112 if help may be needed.</p></li>';
     return;
   }
 
@@ -673,7 +673,7 @@ function initControls() {
   document.getElementById('alert-call-user')?.addEventListener('click', () => {
     const tel = document.getElementById('alert-call-user')?.dataset.tel;
     if (tel) window.location.href = `tel:${tel}`;
-    else notice('No phone number on file for them. Use 911 if you cannot reach them.');
+    else notice('No phone number on file for them. Use 112 if you cannot reach them.');
   });
 
   document.getElementById('logout')?.addEventListener('click', async () => {
@@ -701,7 +701,7 @@ async function boot() {
   try {
     state = await api('/api/state');
   } catch {
-    notice('Offline. Call 911 directly if you believe this is an emergency.');
+    notice('Offline. Call 112 directly if you believe this is an emergency.');
     return;
   }
 

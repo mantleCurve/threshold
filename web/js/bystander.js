@@ -114,20 +114,20 @@ async function loadSamaritan(stateCode) {
   const host = document.getElementById('statute');
   if (!host) return;
 
-  host.textContent = 'Loading your state\'s statute…';
+  host.textContent = 'Checking reviewed regional guidance…';
 
   let rec;
   try {
     rec = await api(`/api/legal/${encodeURIComponent(stateCode)}`);
   } catch {
-    // Degrade to the markup. The headline above — "Call 911 and stay with
+    // Degrade to the markup. The headline above, "Call 112 and stay with
     // them" — is authored, reviewed copy that is unconditionally true
     // everywhere, so the page still does its job with the network down. We
     // deliberately do NOT fall back to a generic claim about legal protection:
     // if we cannot load the state's record, we say we cannot, rather than
     // guessing at an immunity that varies by state.
     host.innerHTML =
-      '<span class="unverified badge badge--fallback">could not load your state\'s statute</span> ' +
+      '<span class="unverified badge badge--fallback">regional guidance unavailable</span> ' +
       'The advice above still stands: call, stay, and say what you see.';
     return;
   }

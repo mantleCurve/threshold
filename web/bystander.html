@@ -36,7 +36,7 @@
   this page is a sequence of actions rather than a single one.
 -->
 <body>
-<a class="skip-link" href="#call">Skip to call 911</a>
+<a class="skip-link" href="#call">Skip to call 112</a>
 
 <main class="pane bystander" id="main">
 
@@ -84,14 +84,12 @@
       against the current statute by a human.
     -->
     <p class="samaritan__headline">
-      Call 911 and stay with them.
+      Call 112 and stay with them.
     </p>
     <p class="prose" style="font-family: var(--font-voice); font-size: var(--step-1); color: var(--ink);">
-      Fear of arrest is the most common reason people do not call — and most US
-      states have laws that protect someone who calls for help during an
-      overdose. Protection varies by state and usually depends on calling in
-      good faith and staying at the scene. Whatever the law where you are,
-      calling is the right thing to do.
+      Tell the dispatcher that the person may be overdosing and is not breathing
+      normally. Stay with them, put the call on speaker, and follow the
+      dispatcher’s instructions. Threshold does not provide legal advice.
     </p>
 
   </section>
@@ -101,9 +99,9 @@
        this page failed to load, the call still works. That is the only reason
        it is a link, and it is a good one.
        -------------------------------------------------------------------- -->
-  <a class="call-911" id="call" href="tel:911">
-    Call 911
-    <small>Tap here — then put it on speaker and keep reading</small>
+  <a class="call-911" id="call" href="tel:112">
+    Call 112
+    <small>Tap here, put it on speaker, and keep reading</small>
   </a>
 
   <!-- The statute citation and the state picker sit BELOW the call button, not
@@ -121,19 +119,23 @@
        If that call fails, the reassurance above still stands on its own — it is
        in the markup, not injected. -->
   <section class="stack" aria-labelledby="statute-h">
-    <h2 class="visually-hidden" id="statute-h">Your state's Good Samaritan law</h2>
+    <h2 class="visually-hidden" id="statute-h">Reviewed regional guidance</h2>
     <p class="samaritan__statute" id="statute" aria-live="polite" style="border-top: 0; margin-top: 0;">
-      Loading your state's statute…
+      Checking reviewed regional guidance…
     </p>
     <div class="field" style="max-width: 16rem;">
-      <label for="state">Not your state?</label>
+      <label for="state">State or union territory</label>
       <select class="input" id="state" name="state">
-        <option value="KY" selected>Kentucky</option>
-        <option value="OH">Ohio</option>
-        <option value="WV">West Virginia</option>
-        <option value="PA">Pennsylvania</option>
-        <option value="CA">California</option>
-        <option value="NY">New York</option>
+        <option value="KA" selected>Karnataka</option>
+        <option value="MH">Maharashtra</option>
+        <option value="DL">Delhi</option>
+        <option value="TN">Tamil Nadu</option>
+        <option value="TG">Telangana</option>
+        <option value="KL">Kerala</option>
+        <option value="GJ">Gujarat</option>
+        <option value="RJ">Rajasthan</option>
+        <option value="UP">Uttar Pradesh</option>
+        <option value="WB">West Bengal</option>
       </select>
     </div>
   </section>

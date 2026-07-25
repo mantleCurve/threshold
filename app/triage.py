@@ -988,7 +988,7 @@ def _emergency_actions(profile: UserProfile | None, contact_tree_at: int) -> lis
         # cannot summarise. This is a model-composed script — language work
         # only, after triage has already decided the tier.
         Action(
-            kind="show_911_script",
+            kind="show_emergency_script",
             detail="Read-aloud script for the dispatcher.",
             at_second=15,
         ),
@@ -1131,8 +1131,8 @@ def _actions_with_crisis(
     about which one is happening, and this module does not guess — it offers
     both and lets the person in front of the screen choose.
 
-    988 leads rather than 911 because a police response to a mental-health
-    crisis carries its own documented risk of harm. 911 remains one tap away.
+    Tele-MANAS leads for mental-health support while 112 remains one tap away
+    for immediate physical danger.
     """
     actions = actions_for_tier(tier, profile)
     if matched_signal in _CRISIS_SIGNAL_LABELS:
@@ -1140,7 +1140,7 @@ def _actions_with_crisis(
             0,
             Action(
                 kind="show_crisis_line",
-                detail="988 Suicide & Crisis Lifeline — call or text, 24/7.",
+                detail="Tele-MANAS 14416 — Government of India mental-health support, 24/7.",
                 at_second=0,
             ),
         )

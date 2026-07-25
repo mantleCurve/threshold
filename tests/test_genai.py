@@ -872,7 +872,7 @@ def test_caregiver_brief_includes_the_craft_grounded_do_not_section():
             tier=Tier.EMERGENCY,
             trigger_source="sensor",
             reason="no response for 20 seconds after stillness",
-            actions_taken=["fire_contact_tree", "show_911_script"],
+            actions_taken=["fire_contact_tree", "show_emergency_script"],
         )
     ]
     system, user = caregiver_brief.build(profile, Tier.EMERGENCY, events)
@@ -913,7 +913,7 @@ def _brief_events(count: int, *, reason: str = "stillness detected") -> list[Eve
             tier=Tier.EMERGENCY,
             trigger_source="sensor",
             reason=reason,
-            actions_taken=["show_911_script"],
+            actions_taken=["show_emergency_script"],
         )
         for i in range(count)
     ]
@@ -1032,7 +1032,7 @@ def test_caregiver_brief_still_carries_what_it_actually_needs(profile):
 
     assert "no response for 20 seconds" in user  # the deterministic reason
     assert "Naloxone in the home" in user  # changes the next-60-seconds advice
-    assert "show_911_script" in user  # the recorded action
+    assert "show_emergency_script" in user  # the recorded action
     assert "tier" not in user.lower()  # PRD P4: still never named to the model
 
 

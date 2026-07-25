@@ -87,16 +87,10 @@ def test_the_real_shipped_dataset_loads_and_validates():
     assert legal.is_loaded()
 
 
-def test_the_shipped_dataset_contains_the_seeded_demo_state():
-    """The seeded profile's `state_code` defaults to KY (app/models.py).
-
-    A demo whose own state is missing from the dataset would show the "no reviewed
-    summary" path on the happy path, which reads as a broken feature.
-    """
+def test_india_profile_does_not_inherit_a_us_legal_claim():
+    """The India launch must fail closed instead of showing Kentucky law."""
     legal.load()
-    record = legal.get("KY")
-    assert record is not None
-    assert record["state_name"]
+    assert legal.get("KA") is None
 
 
 def test_every_shipped_record_carries_its_verification_disclosure():

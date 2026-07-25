@@ -28,21 +28,22 @@ rules decide when emergency controls must appear.
 ### How the solution works
 
 1. A member completes a verified-email account and emergency profile.
-2. Push-to-talk captures an utterance; deterministic triage updates the visible
+2. Tap-to-talk captures an utterance; deterministic triage updates the visible
    ladder without waiting for a model.
 3. Gemini 3.1 Flash Lite generates the contextual response, prevention guidance,
-   refusal script, validated 911 script, Memory Vault selection, or caregiver
+   refusal script, validated 112 script, Memory Vault selection, or caregiver
    brief appropriate to that moment.
 4. ElevenLabs v3 speaks normal interventions; ElevenLabs Flash v2.5 is reserved
    for low-latency urgent guidance. A labelled device-voice fallback prevents
    silence when cloud speech fails.
 5. At a medical emergency the interface removes secondary choices, exposes
-   one-tap 911 and naloxone guidance, and emails verified linked caregivers.
+   one-tap 112 and naloxone guidance, and emails verified linked caregivers.
 
 ### Assumptions
 
-- The judged deployment is US-focused, so emergency calling uses 911 and legal
-  summaries are selected by US state.
+- The judged deployment is India-focused. Emergency calling uses the nationwide
+  112 Emergency Response Support System; Tele-MANAS 14416 provides mental-health
+  support. The app makes no unreviewed legal-immunity claim.
 - Phone number is required contact information but is not OTP-verified; email
   ownership is verified through Resend.
 - Microphone, speech synthesis, location, and network access may be unavailable,
@@ -143,7 +144,7 @@ The judging rules disqualify canned responses presented as model output. Every
 generative surface in this app makes a real API call to Google Gemini via
 OpenRouter.
 
-`/api/script/911` uses Gemini to personalize a short dispatcher script ahead of
+`/api/script/112` uses Gemini to personalize a short dispatcher script ahead of
 need. Address, unit, cross-street, and entry facts are validated
 character-for-character before the result can be shown. If generation is
 offline or changes a critical fact, the endpoint returns a clearly labelled

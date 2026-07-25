@@ -1,4 +1,4 @@
-"""Personalised 911 script — the words a terrified person reads to a dispatcher.
+"""Personalised 112 script — the words a terrified person reads to a dispatcher.
 
 What this module does:
     Renders short deterministic dispatcher lines from validated profile fields.
@@ -30,7 +30,7 @@ from app.models import UserProfile
 from app.prompts import SAFETY_RULES, STYLE_RULES
 
 SYSTEM = """\
-You write the exact words a terrified person will read off a screen to a 911 dispatcher.
+You write the exact words a terrified person will read to an emergency dispatcher.
 They may be shaking, crying, high, or holding someone who is not breathing. Assume they
 can read about six words at a glance and cannot improvise a single one.
 
@@ -90,7 +90,7 @@ _MISSING = "(none given)"
 
 
 def build(profile: UserProfile, situation: str = "") -> tuple[str, str]:
-    """Build the personalised 911 script prompt.
+    """Build the personalised 112 emergency script prompt.
 
     Args:
         profile: The user. This is the ONE task that legitimately needs the address,

@@ -173,7 +173,7 @@ def test_legal_is_never_invented(client):
     """
     body = client.get("/api/legal/ZZ").json()
     assert body.get("unknown") is True
-    assert "911" in body.get("summary", ""), "must still encourage calling"
+    assert "112" in body.get("summary", ""), "must still encourage calling"
 
 
 def test_bystander_needs_no_account(client):

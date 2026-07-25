@@ -124,7 +124,7 @@ def _demo_profile(now: datetime) -> UserProfile:
         cross_street="Corner of Barret Avenue",
         # KY drives the Good Samaritan lookup. Kentucky is a high-burden state
         # and its record is the one verified first in data/legal/.
-        state_code="KY",
+        state_code="KA",
         substances=["opioids"],
         # Naloxone on hand changes what the Tier 4 and bystander flows can
         # instruct. With it true, the bystander screen can say "there is

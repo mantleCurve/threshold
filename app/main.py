@@ -27,13 +27,12 @@ import asyncio
 import json
 import logging
 import os
-import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -49,8 +48,6 @@ from app.models import Contact, Event, Tier, TriageResult, UserProfile
 from app.schemas import (
     ActionReceiptRequest,
     ContactRequest,
-    InviteCreateRequest,
-    InviteResendRequest,
     LoginRequest,
     ProfileUpdateRequest,
     RegisterRequest,
@@ -107,22 +104,6 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _tiers = deps._tiers
 _listeners = deps._listeners
 _delivery_tasks: set[asyncio.Task] = set()
-
-
-def _now_naive() -> datetime:
-    """Naive local 'now', for the invite subsystem only.
-
-    Deliberately NOT `_now()`. Invite timestamps are stored by `app/store.py`
-    with a naive `datetime.now()` default, and Python refuses to compare a naive
-    datetime with an aware one — so passing UTC-aware time into an expiry check
-    would raise TypeError the first time a code was redeemed, rather than
-    failing a test. One clock per subsystem, matched at the boundary.
-
-    Kept separate rather than converting the store to aware time, because the
-    store's timestamps are already written naive throughout (events, consent)
-    and changing that is a migration, not a fix for this feature.
-    """
-    return datetime.now()
 
 
 # `_broadcast` is deliberately NOT defined here.
@@ -255,8 +236,9 @@ app.add_middleware(
 # inlined here because it is an optional, self-contained feature with its own
 # consent gate, and a reader auditing that gate should find the whole of it in
 # one file (app/routes/voice.py) rather than interleaved with the ladder core.
-from app.routes import voice as voice_routes  # noqa: E402
+from app.routes import invites as invite_routes, voice as voice_routes  # noqa: E402
 
+app.include_router(invite_routes.router)
 app.include_router(voice_routes.router)
 
 
@@ -312,205 +294,6 @@ async def auth_register_verify(body: VerifyRegistrationRequest) -> JSONResponse:
     response = JSONResponse(payload)
     auth.set_session_cookie(response, completed.user.id)
     return response
-
-
-# ---------------------------------------------------------------------------
-# Invite codes — consent as structure, not as policy (PRD P3)
-# ---------------------------------------------------------------------------
-# These two endpoints are the ONLY way a caregiver link is created outside the
-# seeded demo fixture. Note what is missing from both of them: nowhere can a
-# caregiver name the account they would like to watch. The member generates a
-# code on their own screen and hands it over; the caregiver can only present a
-# code they were given.
-#
-# That asymmetry is the answer to "isn't this surveillance?". It is not a
-# promise in a privacy policy that we ask permission first — it is an API in
-# which the unconsented case cannot be expressed. Nobody can attach themselves
-# to a person who did not invite them, because there is no parameter for it.
-@app.post("/api/invite")
-async def post_invite(
-    request: Request,
-    body: InviteCreateRequest | None = Body(default=None),
-) -> dict:
-    """Generate a single-use, 24-hour invite code. Called by the member.
-
-    A REAL SESSION IS REQUIRED — `authenticated_user_id`, which has no demo
-    fallback, rather than `_session_user`, which resolves an anonymous caller to
-    the published demo fixture. That fallback exists so an evaluator poking at
-    read endpoints sees a working product, and it must not reach this one: a code
-    is a live permission to watch whoever issued it, so letting a stranger mint
-    one against Sam's account would make the consent story a fiction on the
-    single endpoint where it has to be literally true.
-
-    Returns:
-        `{code, expires_at, expires_in_hours}`. The code is shown once on the
-        member's own screen; we do not email or message it anywhere, because
-        the handover is the consent act and it belongs to the member.
-
-    Raises:
-        HTTPException 401: No session. Anonymous callers cannot issue permissions.
-        HTTPException 403: A caregiver account calling this. Caregivers do not
-            issue invitations to be watched; only members do.
-    """
-    user_id = authenticated_user_id(request)
-    if user_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Sign in to create an invite code. Credentials are on the login page.",
-        )
-
-    # Role check, not just an auth check. A caregiver issuing an invite would
-    # invert the direction of consent — someone redeeming it would end up
-    # watching the caregiver, which is not a relationship this product models.
-    user = await asyncio.to_thread(store.get_user, user_id)
-    if user and user.role != "user":
-        raise HTTPException(
-            status_code=403,
-            detail="Only the person being supported can create an invite code.",
-        )
-
-    email = (body.email if body else "").strip().lower()
-    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        raise HTTPException(status_code=422, detail="Enter a valid caregiver email.")
-
-    invite = await asyncio.to_thread(
-        store.create_invite,
-        user_id,
-        now=_now_naive(),
-        invited_email=email,
-    )
-    delivered, delivery_error = False, None
-    if email:
-        delivered, delivery_error = await email_delivery.send_caregiver_invitation(
-            email,
-            user.full_name or "Someone you care about",
-            invite.code,
-            idempotency_key=f"invite-{invite.code}",
-        )
-    return {
-        "code": invite.code,
-        "email": email,
-        "email_sent": delivered,
-        "email_error": delivery_error,
-        "expires_at": invite.expires_at.isoformat(),
-        "expires_in_hours": store.INVITE_TTL_HOURS,
-    }
-
-
-@app.get("/api/invites")
-async def get_invites(request: Request) -> dict:
-    """Show a member every issued invitation and every accepted caregiver."""
-    user_id = authenticated_user_id(request)
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Sign in to view invitations.")
-    user = await asyncio.to_thread(store.get_user, user_id)
-    if not user or user.role != "user":
-        raise HTTPException(status_code=403, detail="Only members have invitations.")
-
-    now = _now_naive()
-    invites = await asyncio.to_thread(store.list_invites, user_id)
-    caregiver_ids = await asyncio.to_thread(store.caregivers_for, user_id)
-    caregivers = await asyncio.gather(
-        *(asyncio.to_thread(store.get_user, caregiver_id) for caregiver_id in caregiver_ids)
-    )
-    return {
-        "invitations": [
-            {
-                "code": invite.code,
-                "email": invite.invited_email,
-                "created_at": invite.created_at.isoformat(),
-                "expires_at": invite.expires_at.isoformat(),
-                "expired": invite.is_expired(now),
-                "redeemed": invite.is_spent,
-            }
-            for invite in invites
-        ],
-        "caregivers": [
-            {
-                "full_name": caregiver.full_name,
-                "email": caregiver.email,
-            }
-            for caregiver in caregivers
-            if caregiver
-        ],
-    }
-
-
-@app.post("/api/invite/resend")
-async def resend_invite(
-    request: Request,
-    body: InviteResendRequest,
-) -> dict:
-    """Resend an unspent, unexpired invitation owned by the signed-in member."""
-    user_id = authenticated_user_id(request)
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Sign in to resend invitations.")
-    user = await asyncio.to_thread(store.get_user, user_id)
-    if not user or user.role != "user":
-        raise HTTPException(status_code=403, detail="Only members have invitations.")
-
-    invite = await asyncio.to_thread(store.get_invite, body.code)
-    if not invite or invite.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Invitation not found.")
-    if invite.is_spent:
-        raise HTTPException(status_code=409, detail="This invitation has already been used.")
-    if invite.is_expired(_now_naive()):
-        raise HTTPException(status_code=410, detail="This invitation has expired. Create a new one.")
-
-    email = (body.email or invite.invited_email).strip().lower()
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        raise HTTPException(status_code=422, detail="Enter a valid caregiver email.")
-    await asyncio.to_thread(store.set_invite_email, invite.code, user_id, email)
-    delivered, error = await email_delivery.send_caregiver_invitation(
-        email,
-        user.full_name or "Someone you care about",
-        invite.code,
-        idempotency_key=f"invite-resend-{invite.code}-{uuid.uuid4().hex}",
-    )
-    if not delivered:
-        raise HTTPException(status_code=503, detail=error or "Invitation could not be sent.")
-    return {"ok": True, "code": invite.code, "email": email, "email_sent": True}
-
-
-@app.post("/api/invite/redeem")
-async def post_invite_redeem(request: Request, body: dict = Body(...)) -> dict:
-    """Redeem an invite code, linking the calling caregiver to its issuer.
-
-    Auth is required: a link is attached to a real account, and an anonymous
-    redemption would spend a member's code on nobody.
-
-    Args:
-        body: `{code}` — the code as typed. Case and dashes are normalised by
-            the store, because this is retyped by a human from a screen.
-
-    Returns:
-        `{ok, watching}` where `watching` is the member's username, so the
-        caregiver immediately sees WHO they are now connected to and can catch a
-        mistyped-but-valid code before relying on it.
-
-    Raises:
-        HTTPException 400: Unknown, expired, already-used, or self-issued code.
-            The store's message is passed through verbatim — it distinguishes
-            those cases on purpose, because "invalid" sends an exhausted person
-            round a loop they cannot debug.
-    """
-    caller = authenticated_user_id(request)
-    if caller is None:
-        raise HTTPException(status_code=401, detail="Sign in to redeem an invite code.")
-
-    code = (body.get("code") or "").strip()
-    if not code:
-        raise HTTPException(status_code=400, detail="Enter the code you were given.")
-
-    try:
-        watched_id = await asyncio.to_thread(
-            store.redeem_invite, code, caller, _now_naive()
-        )
-    except store.InviteError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    watched = await asyncio.to_thread(store.get_user, watched_id)
-    return {"ok": True, "watching": watched.username if watched else None}
 
 
 @app.post("/api/auth/login")
@@ -913,8 +696,9 @@ async def sse(request: Request) -> StreamingResponse:
 # themselves.
 
 
-@app.get("/api/script/911")
-async def get_script_911(request: Request) -> dict:
+@app.get("/api/script/112")
+@app.get("/api/script/911", include_in_schema=False)
+async def get_script_112(request: Request) -> dict:
     """The personalised emergency script: their address, their unit, their entry code.
 
     Gemini personalizes the script ahead of need. Dispatcher facts are validated
@@ -1281,8 +1065,8 @@ async def get_legal(state_code: str) -> dict:
         "state_code": state_code.upper(),
         "unknown": True,
         "summary": (
-            "We do not have a reviewed summary for this state. Calling 911 is still "
-            "the right thing to do. Do not rely on this app for legal advice."
+            "We do not have a reviewed legal summary for this Indian state. "
+            "Call 112 for an emergency. Do not rely on this app for legal advice."
         ),
     }
 

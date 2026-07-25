@@ -297,7 +297,7 @@ function runEmergencySequence() {
   // nothing. Someone who believes an ambulance is already on its way may wait
   // instead of pressing the button. The line must stay calm, but it has to put
   // the action back in the hands of whoever is holding the phone.
-  say('Stay with me. Press the big button to call 911. If you have Narcan, use it now.');
+  say('Stay with me. Press the big button to call 112. If you have naloxone, use it now.');
   recordReceipt('naloxone_prompt_displayed', 'Naloxone guidance was shown and spoken.');
 
   // t=5s — do not wait for a reply. Continue without user input.
@@ -319,7 +319,7 @@ function runEmergencySequence() {
   }, 10000));
 
   // t=15s — the 911 script, read one line at a time.
-  emergencyTimers.push(setTimeout(() => { loadScript911(); }, 15000));
+  emergencyTimers.push(setTimeout(() => { loadEmergencyScript(); }, 15000));
 }
 
 function clearEmergencyTimers() {
@@ -730,7 +730,7 @@ async function sendUtterance(text) {
   } catch (err) {
     const fallback =
       'Threshold could not reach the server. If you may be in immediate danger, ' +
-      'call 911 now. You can also call or text 988 for crisis support.';
+      'call 112 now. You can also call Tele-MANAS at 14416 for crisis support.';
     addSystemNote(fallback, true);
     // Use the device directly on a network failure. Routing this through the
     // cloud voice path would retry the service that just failed before falling
@@ -817,8 +817,8 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
-async function loadScript911() {
-  const gen = await api('/api/script/911');
+async function loadEmergencyScript() {
+  const gen = await api('/api/script/112');
   // #harm-panel, not #script-911 — the latter is not in the markup, so this
   // rendered into nothing and the script never appeared on screen.
   renderGeneration('harm-panel', gen);
@@ -834,8 +834,8 @@ async function loadScript911() {
   });
   if (gen?.text) {
     addStatusLine(
-      'Personalised 911 script displayed',
-      '911_script_displayed',
+      'Personalised 112 script displayed',
+      'emergency_script_displayed',
     );
   }
 }
@@ -997,7 +997,7 @@ function initControls() {
   // and returned silently: the buttons appeared to do nothing at all.
   document.getElementById('show-samaritan')?.addEventListener('click', loadSamaritan);
 
-  // "The words to say to 911" had no handler whatsoever. It is the single most
+  // "The words to say to 112" had no handler whatsoever. It is the single most
   // important control at Tier 3 — the script is the whole point of PRD §6.1 —
   // and pressing it did nothing.
   document.getElementById('show-911')?.addEventListener('click', async () => {
@@ -1006,7 +1006,7 @@ function initControls() {
       host.hidden = false;
       host.innerHTML = '<p class="prose">Writing your script…</p>';
     }
-    await loadScript911();
+    await loadEmergencyScript();
   });
 
   document.getElementById('arm-bystander')?.addEventListener('click', openBystander);
@@ -1060,7 +1060,7 @@ async function loadSamaritan() {
     // reviewed copy that holds in every state with a Good Samaritan law.
     host.innerHTML =
       '<p class="prose"><span class="unverified">could not load your state\'s statute</span> ' +
-      'Calling 911 for an overdose is still the right thing to do.</p>';
+      'Calling 112 for an overdose is still the right thing to do.</p>';
     return;
   }
 

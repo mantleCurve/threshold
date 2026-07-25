@@ -191,6 +191,12 @@ class InviteResendRequest(_StrictBody):
     email: str = Field(default="", max_length=320)
 
 
+class InviteRedeemRequest(_StrictBody):
+    """Redeem the human-readable code supplied by a member."""
+
+    code: str = Field(min_length=1, max_length=32)
+
+
 class LoginRequest(_StrictBody):
     """Body of `POST /api/auth/login`.
 
@@ -275,7 +281,7 @@ class ActionReceiptRequest(_StrictBody):
         "location_displayed",
         "bystander_hail_started",
         "wake_lock_acquired",
-        "911_script_displayed",
+        "emergency_script_displayed",
         "vault_clip_played",
         "grounding_started",
         "rescue_breathing_started",

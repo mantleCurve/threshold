@@ -592,7 +592,7 @@ def test_seed_creates_the_demo_state():
 
     profile = store.get_profile(sam.id)
     assert profile.name == "Sam"
-    assert profile.state_code == "KY"
+    assert profile.state_code == "KA"
     assert profile.naloxone_on_hand is True
     assert profile.unit and profile.entry_code and profile.cross_street
 

@@ -52,7 +52,7 @@ available without registration or sign-in.
 
 ### 4.1 Multimodal, zero-typing interaction
 
-The primary member experience accepts speech through push-to-talk and provides
+The primary member experience accepts speech through tap-to-start/tap-to-stop and provides
 an accessible typed fallback. Responses are delivered simultaneously as:
 
 - concise on-screen text;
@@ -103,7 +103,7 @@ streaks, or badges and does not punish honest disclosure.
 
 The member prepares verified dispatcher facts during onboarding: address, unit,
 cross street, entry instruction, naloxone availability, and relevant substances.
-GenAI turns those facts and the current situation into a short, readable 911
+GenAI turns those facts and the current situation into a short, readable 112
 script while the member is calm.
 
 Safety requirements:
@@ -125,7 +125,7 @@ deterministic-only feature and not an unvalidated model call during a crisis.
 At Tier 4/5, secondary navigation and nonessential controls leave the screen.
 The experience prioritizes:
 
-- one-tap `tel:911` access;
+- one-tap `tel:112` access for India’s Emergency Response Support System;
 - the personalized emergency script;
 - naloxone and rescue-breathing guidance;
 - audible instructions with visible captions;
@@ -133,7 +133,7 @@ The experience prioritizes:
 - caregiver notification to verified, linked caregivers; and
 - a clear rescind action for a false alarm.
 
-The interface must never claim that 911 was called, an ambulance was dispatched,
+The interface must never claim that 112 was called, an ambulance was dispatched,
 or a caregiver was notified unless the system has a real delivery receipt.
 
 ### 4.6 Caregiver support
@@ -275,7 +275,7 @@ The judged build is complete when a new visitor can:
 2. register with full name, email, phone, and password;
 3. verify email without phone verification;
 4. finish member onboarding and generate a caregiver invite;
-5. use push-to-talk to receive a real, personalized GenAI response;
+5. use tap-to-talk to receive a real, personalized GenAI response;
 6. generate and hear a validated personalized emergency script;
 7. trigger each ladder state and see the interface simplify as risk rises;
 8. open bystander overdose guidance without an account;
