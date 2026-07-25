@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -36,6 +37,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from app import store, triage
+from app.security import SecurityMiddleware
 from app.models import Event, Tier, TriageResult
 
 log = logging.getLogger("threshold")
@@ -146,6 +148,15 @@ app = FastAPI(
     title="Threshold",
     description="Recovery and overdose-prevention platform. Deterministic triage, generative language.",
     lifespan=lifespan,
+)
+
+# Security headers and abuse-resistance. Mounted first so it wraps every route,
+# including the static mount. HTTPS-only headers are enabled by environment flag
+# so a local http:// dev server does not pin the browser to a scheme it cannot
+# answer on. See app/security.py for why the emergency path is never throttled.
+app.add_middleware(
+    SecurityMiddleware,
+    https=os.getenv("THRESHOLD_HTTPS", "").lower() in ("1", "true", "yes"),
 )
 
 
@@ -684,8 +695,41 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/reset")
-async def post_reset() -> dict:
-    """Restore seeded demo state, so an evaluator can run the whole story again."""
+async def post_reset(request: Request) -> dict:
+    """Restore seeded demo state so an evaluator can run the whole story again.
+
+    GATED, DELIBERATELY. This calls drop_all(), which deletes every account,
+    profile, credential and event in the database before reseeding. Left
+    unauthenticated it is a one-request wipe of the entire deployment by any
+    passing stranger — which is exactly what it was until this gate was added.
+
+    Two conditions must both hold:
+      1. THRESHOLD_DEMO_MODE must be enabled for the deployment. A production
+         instance holding real people's recovery data has no legitimate use for
+         a "delete everything" button, so there it simply does not exist.
+      2. The caller must be signed in. The demo credentials are published, so
+         this costs an evaluator one click and costs a drive-by attacker the
+         whole attack.
+    """
+    if os.getenv("THRESHOLD_DEMO_MODE", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Demo reset is disabled on this deployment.",
+        )
+
+    try:
+        from app import auth
+
+        if not auth.user_from_request(request):
+            raise HTTPException(
+                status_code=401,
+                detail="Sign in to reset the demo. Credentials are on the login page.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Sign in to reset the demo.")
+
     _tiers.clear()
     try:
         from app import seed
@@ -697,9 +741,6 @@ async def post_reset() -> dict:
     return {"ok": True}
 
 
-# ---------------------------------------------------------------------------
-# Legal data — static, never generated
-# ---------------------------------------------------------------------------
 @app.get("/api/legal/{state_code}")
 async def get_legal(state_code: str) -> dict:
     """Good Samaritan overdose-immunity summary for a state.

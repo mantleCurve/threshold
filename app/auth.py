@@ -351,7 +351,9 @@ def verify_login(username: str, password: str) -> store.UserRecord:
 # ---------------------------------------------------------------------------
 
 
-def set_session_cookie(response: Response, user_id: str, secure: bool = False) -> None:
+def set_session_cookie(
+    response: Response, user_id: str, secure: bool | None = None
+) -> None:
     """Attach a signed session cookie to a response.
 
     Args:
@@ -372,7 +374,16 @@ def set_session_cookie(response: Response, user_id: str, secure: bool = False) -
         # Lax: blocks cross-site form POSTs (CSRF) while still sending the
         # cookie on a top-level navigation, so a link into the demo works.
         samesite="lax",
-        secure=secure,
+        # Default the Secure flag from the deployment scheme rather than
+        # hardcoding it off. A session cookie for a recovery product must not
+        # travel in cleartext on an HTTPS deployment; on a local http:// dev
+        # server a Secure cookie is silently dropped and auth would appear
+        # broken, so it stays off there. THRESHOLD_HTTPS is set in production.
+        secure=(
+            secure
+            if secure is not None
+            else os.getenv("THRESHOLD_HTTPS", "").lower() in ("1", "true", "yes")
+        ),
         path="/",
     )
 
