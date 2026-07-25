@@ -54,9 +54,13 @@ log = logging.getLogger("threshold.voice")
 
 _API_ROOT = "https://api.elevenlabs.io/v1"
 
-# Turbo: this is read aloud during an emergency, where latency is measured
-# against someone's breathing. Quality is secondary to arriving in time.
-_TTS_MODEL = "eleven_turbo_v2_5"
+# Normal interventions favor the most expressive model. Urgent instructions
+# use the low-latency Flash path so cloud quality never delays rescue guidance.
+# Both remain deployment-configurable without a code change.
+_TTS_MODEL_EXPRESSIVE = os.getenv("ELEVENLABS_TTS_MODEL", "eleven_v3").strip()
+_TTS_MODEL_URGENT = os.getenv(
+    "ELEVENLABS_URGENT_TTS_MODEL", "eleven_flash_v2_5"
+).strip()
 
 # A stock narrator used when the member has expressed no preference. Calm and
 # unhurried rather than bright — this voice reads overdose instructions.
@@ -87,6 +91,7 @@ class Speech:
     cloned: bool = False
     error: str | None = None
     latency_ms: int = 0
+    model_id: str = ""
 
 
 def _key() -> str:
@@ -115,6 +120,7 @@ async def synthesize(
     *,
     voice_id: str | None = None,
     cloned: bool = False,
+    urgent: bool = False,
 ) -> Speech:
     """Speak `text` in `voice_id`.
 
@@ -131,15 +137,19 @@ async def synthesize(
     """
     key = _key()
     vid = voice_id or _DEFAULT_VOICE_ID
+    model_id = _TTS_MODEL_URGENT if urgent else _TTS_MODEL_EXPRESSIVE
     started = time.monotonic()
 
     if not key:
-        return Speech(b"", False, vid, cloned, "Cloud voice offline — no API key")
+        return Speech(
+            b"", False, vid, cloned, "Cloud voice offline — no API key",
+            model_id=model_id,
+        )
 
     # Hard ceiling. This is spoken aloud, so anything long is a bug upstream.
     text = text.strip()[:900]
     if not text:
-        return Speech(b"", False, vid, cloned, "Nothing to say")
+        return Speech(b"", False, vid, cloned, "Nothing to say", model_id=model_id)
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -148,13 +158,11 @@ async def synthesize(
                 headers={"xi-api-key": key, "Content-Type": "application/json"},
                 json={
                     "text": text,
-                    "model_id": _TTS_MODEL,
-                    # Stability high, style low: this voice reads emergency
-                    # instructions. Expressive delivery is actively wrong here.
+                    "model_id": model_id,
                     "voice_settings": {
-                        "stability": 0.65,
+                        "stability": 0.65 if urgent else 0.5,
                         "similarity_boost": 0.8,
-                        "style": 0.0,
+                        "style": 0.0 if urgent else 0.3,
                         "use_speaker_boost": True,
                     },
                 },
@@ -165,16 +173,19 @@ async def synthesize(
                 b"", False, vid, cloned,
                 f"Voice unavailable (HTTP {res.status_code})",
                 int((time.monotonic() - started) * 1000),
+                model_id,
             )
         return Speech(
             res.content, True, vid, cloned, None,
             int((time.monotonic() - started) * 1000),
+            model_id,
         )
     except Exception as exc:
         log.warning("tts failed: %s", _redact(str(exc)))
         return Speech(
             b"", False, vid, cloned, "Voice unavailable",
             int((time.monotonic() - started) * 1000),
+            model_id,
         )
 
 

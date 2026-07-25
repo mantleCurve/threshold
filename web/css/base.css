@@ -173,8 +173,8 @@ legend { padding: 0; }
 .data  { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
 
 .display {
-  font-family: var(--font-ui);
-  font-weight: 550;
+  font-family: var(--font-voice);
+  font-weight: 400;
   letter-spacing: var(--track-tight);
   line-height: 1.02;
 }

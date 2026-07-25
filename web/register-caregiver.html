@@ -22,19 +22,19 @@
   Design system: web/css/README.md. Same four stylesheets, same order, same
   .auth two-column shell as /register and /login. No new tokens, no new colour.
 -->
-<html lang="en" data-tier="0">
+<html lang="en" data-tier="0" data-default-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>You were invited — Threshold</title>
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/light.css">
 <link rel="stylesheet" href="/static/css/tiers.css">
 <link rel="stylesheet" href="/static/css/pages.css">
 <script src="/static/js/theme.js"></script>
 </head>
-<body>
+<body class="auth-page">
 <a class="skip-link" href="#signup">Skip to the form</a>
 
 <div class="auth">
@@ -88,8 +88,8 @@
       <div class="stack-tight">
         <h1 class="display" style="font-size: var(--step-4);">Someone asked you to be here</h1>
         <p class="hint">
-          Enter the code they gave you, then pick a name and a password. It takes
-          about thirty seconds and you do not have to decide anything else tonight.
+          Enter the code they gave you, then add your full name, email, phone
+          number, and password. We verify your email, not your phone.
         </p>
       </div>
 

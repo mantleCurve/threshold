@@ -141,3 +141,20 @@ def render(profile: UserProfile) -> str:
     )
     lines.append("Please stay on the line and tell me what to do.")
     return "\n".join(lines)
+
+
+def preserves_dispatcher_facts(text: str, profile: UserProfile) -> bool:
+    """Return whether generated output preserved every supplied routing fact.
+
+    GenAI supplies the personalized phrasing, but it only reaches the emergency
+    screen when the address, unit, cross street, and entry code survive exactly.
+    """
+    if not text.strip():
+        return False
+    required = (
+        profile.address,
+        profile.unit,
+        profile.cross_street,
+        profile.entry_code,
+    )
+    return all(not value or value in text for value in required)

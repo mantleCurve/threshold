@@ -52,6 +52,14 @@ from app.models import (
 DEMO_USER_USERNAME = "sam"
 DEMO_CAREGIVER_USERNAME = "sarah"
 
+# The only accounts permitted to call POST /api/reset, which destroys every
+# account and the entire event log. Membership here is what stops a stranger
+# who registers an ordinary account from wiping the deployment — being signed
+# in is not a gate when the credentials are published in the README.
+DEMO_ACCOUNTS: frozenset[str] = frozenset(
+    {DEMO_USER_USERNAME, DEMO_CAREGIVER_USERNAME}
+)
+
 # The shared demo password. It is in the contract, printed on the login screen
 # and pre-filled in the form, because ground rule 4 says auth must never block
 # an evaluator. Being public does not make it plaintext-at-rest: it still goes

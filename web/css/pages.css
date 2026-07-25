@@ -760,6 +760,22 @@
 }
 .ai-voice-label[hidden] { display: none; }
 
+.voice-fallback-label {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 9998;
+  max-width: min(28rem, calc(100vw - var(--sp-6)));
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--canvas-deep);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  font-size: var(--step-00);
+}
+.voice-fallback-label[hidden] { display: none; }
+
 /* -- THE LIVE RECORDING INDICATOR ------------------------------------------
    A page-level bar while the microphone is open, set from
    document.body.dataset.recording. Deliberately at the TOP and full width: on a

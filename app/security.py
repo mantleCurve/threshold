@@ -21,6 +21,7 @@ WHY IN-PROCESS RATE LIMITING RATHER THAN REDIS
 
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict, deque
 
@@ -72,22 +73,44 @@ _hits: dict[str, deque[float]] = defaultdict(deque)
 _MAX_TRACKED_CLIENTS = 10_000
 
 
+# Proxies whose X-Forwarded-For we are willing to believe.
+#
+# Only the loopback addresses by default, because that is where our own nginx
+# sits. Anything else must be named explicitly via THRESHOLD_TRUSTED_PROXIES.
+_TRUSTED_PROXIES: frozenset[str] = frozenset(
+    p.strip()
+    for p in os.getenv("THRESHOLD_TRUSTED_PROXIES", "127.0.0.1,::1").split(",")
+    if p.strip()
+)
+
+
 def _client_key(request: Request) -> str:
     """Identify the caller for rate-limiting purposes.
 
-    Prefers the proxy-supplied client address, since every real request arrives
-    through nginx and `request.client` would otherwise be the loopback address
-    for everyone. Only the FIRST entry in X-Forwarded-For is used: the rest are
-    attacker-controllable and trusting them would let anyone bypass the limit by
-    prepending a fake hop.
+    X-Forwarded-For is honoured ONLY when the immediate peer is a proxy we
+    trust. It used to be honoured unconditionally, and a security review proved
+    that made every limit in this table decorative: fourteen wrong passwords
+    with a rotating `X-Forwarded-For: 10.1.1.$i` were all accepted, where the
+    same requests without the header throttled correctly at eight.
 
-    This is not a strong identity — a determined attacker has many addresses.
-    It raises the cost of online password guessing, which is its whole purpose.
+    The old comment defended taking only the first entry because "the rest are
+    attacker-controllable". The first entry is the one an attacker sets — when
+    the request did not come through our proxy, the whole header is theirs.
+
+    Falling back to the peer address is the safe direction: behind our nginx
+    every request genuinely originates from loopback, so the header is real;
+    anywhere else the peer is the true source.
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+
+    if peer in _TRUSTED_PROXIES:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            # Leftmost entry is the originating client as recorded by our own
+            # proxy, which we have just established is the one that set it.
+            return forwarded.split(",")[0].strip()
+
+    return peer
 
 
 def check_rate_limit(request: Request) -> tuple[bool, int]:
@@ -106,7 +129,20 @@ def check_rate_limit(request: Request) -> tuple[bool, int]:
     key = f"{_client_key(request)}:{request.url.path}"
 
     if len(_hits) > _MAX_TRACKED_CLIENTS:
-        _hits.clear()
+        # Evict the OLDEST-IDLE entries, never clear the whole table.
+        #
+        # This used to call _hits.clear(), which reset every client's counter at
+        # once. A review demonstrated the consequence: lock an address out of
+        # login, then send ~10,500 requests with distinct spoofed keys in three
+        # seconds, and the locked-out address is immediately able to guess
+        # passwords again. A brute-forcer could clear its own lockout on demand.
+        #
+        # Evicting by last-activity keeps the entries that matter — a client
+        # mid-attack is by definition the most recently active — and bounds
+        # memory just as effectively.
+        stale = sorted(_hits.items(), key=lambda kv: kv[1][-1] if kv[1] else 0.0)
+        for key_to_drop, _ in stale[: len(_hits) // 2]:
+            _hits.pop(key_to_drop, None)
 
     bucket = _hits[key]
     # Drop timestamps that have aged out of the window.

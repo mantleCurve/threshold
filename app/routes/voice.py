@@ -588,10 +588,9 @@ async def voice_available(request: Request) -> dict:
     ]
     return {
         "online": voice.is_online(),
-        # Stated by the server so the client cannot drift from the policy:
-        # the app speaks in the browser's own voice until the member picks
-        # otherwise.
-        "default_is_browser": True,
+        # Stock ElevenLabs narration is the zero-typing default when configured.
+        # The browser voice remains the no-network fallback and an explicit choice.
+        "default_is_browser": False,
         "stock": stock,
         "supporter": supporter,
     }
@@ -670,7 +669,10 @@ async def voice_speak(request: Request, body: dict = Body(...)) -> Response:
         # makes a presence claim harmful, not the words on their own.
         _refuse_presence_claim(text)
 
-    result = await voice.synthesize(text, voice_id=requested or None, cloned=cloned)
+    urgent = str(body.get("mode") or "").strip().lower() == "urgent"
+    result = await voice.synthesize(
+        text, voice_id=requested or None, cloned=cloned, urgent=urgent
+    )
     if not result.live or not result.audio:
         # Honest failure. The client falls back to browser speech on seeing this
         # rather than going quiet — see `speak()` in web/js/app.js.
@@ -687,6 +689,7 @@ async def voice_speak(request: Request, body: dict = Body(...)) -> Response:
             # and app/voice.py.
             "X-Voice-Cloned": "true" if result.cloned else "false",
             "X-Voice-Id": result.voice_id,
+            "X-Voice-Model": result.model_id,
             # Someone's synthesized voice is not a thing to leave in a proxy
             # cache, and app/security.py only sets this on /api/ paths via the
             # middleware — restated here so it survives a change there.

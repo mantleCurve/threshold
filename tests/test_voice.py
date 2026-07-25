@@ -66,7 +66,7 @@ class FakeProvider:
     def __init__(self) -> None:
         self.clone_calls: list[tuple[str, list]] = []
         self.deleted: list[str] = []
-        self.synth_calls: list[tuple[str, str | None, bool]] = []
+        self.synth_calls: list[tuple[str, str | None, bool, bool]] = []
         self.online = True
 
     async def clone(self, display_name, samples):
@@ -77,8 +77,8 @@ class FakeProvider:
         self.deleted.append(voice_id)
         return True
 
-    async def synthesize(self, text, *, voice_id=None, cloned=False):
-        self.synth_calls.append((text, voice_id, cloned))
+    async def synthesize(self, text, *, voice_id=None, cloned=False, urgent=False):
+        self.synth_calls.append((text, voice_id, cloned, urgent))
         return voice.Speech(b"ID3-fake-mp3-bytes", True, voice_id or "stock", cloned)
 
     async def list_voices(self):
@@ -317,8 +317,8 @@ def test_member_cannot_see_an_unshared_voice(client, provider, accounts):
     _sign_in(client, member)
     available = client.get("/api/voice/available").json()
     assert available["supporter"] == []
-    # Browser speech remains the default the client pre-selects.
-    assert available["default_is_browser"] is True
+    # Stock ElevenLabs narration is the default; clones remain opt-in.
+    assert available["default_is_browser"] is False
 
 
 def test_member_cannot_speak_in_an_unshared_voice(client, provider, accounts):

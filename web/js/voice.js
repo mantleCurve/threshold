@@ -9,9 +9,9 @@
           MediaRecorder + getUserMedia, playback and re-record per passage, a
           live recording indicator, the exact consent checkbox, and — only after
           the clone succeeds — the separate share toggle.
-       2. MEMBER (/onboarding) — picking the app's speaking voice: the browser's
-          own speech, a stock cloud narrator, or a supporter voice if one has
-          been shared. Browser speech is the default and is pre-selected.
+       2. MEMBER (/onboarding) — picking the app's speaking voice: a stock cloud
+          narrator, the browser's own speech, or a supporter voice if one has
+          been shared. Stock ElevenLabs narration is the configured default.
        3. speakWithChosenVoice() — the primitive app.js routes every utterance
           through.
 
@@ -65,21 +65,20 @@ const CHOICE_KEY = 'threshold.voice.choice';
  * Read the member's chosen voice.
  *
  * @returns {{kind: 'browser'|'stock'|'supporter', voiceId: string, name: string}}
- *   Browser speech when nothing is stored or the stored value is unreadable.
- *   Failing toward the browser is the safe direction: it is free, offline, and
- *   impersonates nobody.
+ *   Stock ElevenLabs narration when nothing is stored. Browser speech remains
+ *   the explicit no-network fallback.
  */
 export function getVoiceChoice() {
   try {
     const raw = localStorage.getItem(CHOICE_KEY);
-    if (!raw) return { kind: 'browser', voiceId: '', name: 'Browser voice' };
+    if (!raw) return { kind: 'stock', voiceId: '', name: 'Threshold narrator' };
     const parsed = JSON.parse(raw);
     if (!parsed || !['browser', 'stock', 'supporter'].includes(parsed.kind)) {
-      return { kind: 'browser', voiceId: '', name: 'Browser voice' };
+      return { kind: 'stock', voiceId: '', name: 'Threshold narrator' };
     }
     return parsed;
   } catch {
-    return { kind: 'browser', voiceId: '', name: 'Browser voice' };
+    return { kind: 'stock', voiceId: '', name: 'Threshold narrator' };
   }
 }
 
@@ -135,6 +134,20 @@ function showClonedLabel(on, name = '') {
 /* The currently playing cloud audio, so a new utterance can cut off an old one
    rather than talking over it — and so the label is cleared when it does. */
 let currentAudio = null;
+let fallbackEl = null;
+
+function showFallbackNotice() {
+  if (!fallbackEl) {
+    fallbackEl = document.createElement('div');
+    fallbackEl.className = 'voice-fallback-label';
+    fallbackEl.setAttribute('role', 'status');
+    fallbackEl.setAttribute('aria-live', 'polite');
+    document.body.appendChild(fallbackEl);
+  }
+  fallbackEl.textContent = 'ElevenLabs was unavailable — using this device’s voice.';
+  fallbackEl.hidden = false;
+  window.setTimeout(() => { if (fallbackEl) fallbackEl.hidden = true; }, 6000);
+}
 
 /**
  * Speak with the browser's own speech synthesis.
@@ -238,10 +251,14 @@ export async function speakWithChosenVoice(text, { loud = false } = {}) {
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice_id: choice.voiceId }),
+      body: JSON.stringify({
+        text,
+        voice_id: choice.voiceId,
+        mode: loud ? 'urgent' : 'expressive',
+      }),
       // A hard ceiling: a hanging synthesis request during an emergency is
       // worse than a robotic voice arriving now.
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(loud ? 8000 : 20000),
     });
     if (!res.ok) throw new Error(`voice ${res.status}`);
 
@@ -251,6 +268,7 @@ export async function speakWithChosenVoice(text, { loud = false } = {}) {
     if (await playCloned(blob, { cloned, name: choice.name })) return 'cloud';
     throw new Error('playback blocked');
   } catch {
+    showFallbackNotice();
     return speakInBrowser(text, { loud }) ? 'browser' : 'none';
   }
 }
@@ -553,9 +571,8 @@ export async function initCaregiverVoice() {
 /**
  * Wire the member's voice picker.
  *
- * Browser speech is FIRST in the list and selected whenever nothing else has
- * been chosen. That ordering is the policy made visible: the app speaks in a
- * synthetic-but-anonymous voice unless the member deliberately picks otherwise.
+ * Stock ElevenLabs narration is selected when nothing else has been chosen.
+ * Browser speech remains visible as the offline option.
  *
  * No-ops when the section is absent.
  */
@@ -577,21 +594,29 @@ export async function initVoicePicker() {
 
   const chosen = getVoiceChoice();
 
-  // Browser first, always. Not a cloud voice, always available, impersonates
-  // nobody — and the default the app falls back to whenever anything fails.
-  const options = [{
-    kind: 'browser',
-    voiceId: '',
-    name: 'Your device’s voice',
-    note: 'Always works, even with no connection. This is the default.',
-  }];
+  const options = [];
 
   data.stock?.forEach((v) => options.push({
     kind: 'stock',
     voiceId: v.voice_id,
     name: v.name,
-    note: 'A narrator. Not a real person, and not anyone you know.',
+    note: 'Natural ElevenLabs narration. Not a real person, and not anyone you know.',
   }));
+
+  // The server-side default narrator works even if listing voices failed.
+  if (data.online && !options.length) options.push({
+    kind: 'stock',
+    voiceId: '',
+    name: 'Threshold narrator',
+    note: 'Natural ElevenLabs narration.',
+  });
+
+  options.push({
+    kind: 'browser',
+    voiceId: '',
+    name: 'Your device’s voice',
+    note: 'Always works without a connection. Used if ElevenLabs is unavailable.',
+  });
 
   data.supporter?.forEach((v) => options.push({
     kind: 'supporter',

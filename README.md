@@ -77,9 +77,11 @@ overridable: if the system believes you are in medical danger, it alerts someone
 
 ### What we deliberately did not build
 
-- **No caregiver voice cloning.** Consent is obtained in calm and spent in crisis;
-  a disclosure label is doing legal work, not cognitive work, on someone who is
-  intoxicated or panicking. The Memory Vault plays real recordings instead.
+- **Caregiver voice cloning is consented at both ends.** The caregiver records
+  and consents in their own account, sharing is a separate action, and the
+  member explicitly opts in. Every utterance is labelled as an AI recreation,
+  it may never claim the real person is present, and either side can revoke it.
+  Memory Vault messages remain real recordings.
 - **No model-generated legal text.** Good Samaritan immunity varies substantially by
   state, and hallucinated legal protection is the single worst failure mode this
   product could have. `data/legal/` is a static, human-reviewed dataset.

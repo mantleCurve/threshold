@@ -868,8 +868,9 @@ async def sse(request: Request) -> StreamingResponse:
 async def get_script_911(request: Request) -> dict:
     """The personalised emergency script: their address, their unit, their entry code.
 
-    Rendered locally and read aloud one line at a time during crisis. Dispatcher
-    facts never pass through a language model.
+    Gemini personalizes the script ahead of need. Dispatcher facts are validated
+    character-for-character; any missing or altered fact triggers the local
+    template, so GenAI remains core without becoming a single point of failure.
     """
     owner_id = _require_own_profile(request)
     profile = store.get_profile(owner_id)
@@ -880,13 +881,28 @@ async def get_script_911(request: Request) -> dict:
             status_code=409,
             detail="Complete your emergency profile before generating this script.",
         )
+    generated = await _generate(
+        script_911.build,
+        fast=False,
+        owner_id=owner_id,
+        profile=profile,
+    )
+    if generated.get("live") and script_911.preserves_dispatcher_facts(
+        str(generated.get("text") or ""), profile
+    ):
+        generated["validated"] = True
+        generated["deterministic"] = False
+        return generated
+
     return {
         "text": script_911.render(profile),
         "live": False,
         "deterministic": True,
+        "validated": True,
         "model": "local-template",
-        "latency_ms": 0,
-        "error": "Not model-generated; dispatcher facts were rendered locally.",
+        "latency_ms": generated.get("latency_ms", 0),
+        "error": generated.get("error")
+        or "Generated script failed fact validation; using verified local fallback.",
     }
 
 
@@ -1190,44 +1206,52 @@ def _parse_contacts(raw) -> list[Contact]:
 
 @app.post("/api/reset")
 async def post_reset(request: Request) -> dict:
-    """Restore seeded demo state so an evaluator can run the whole story again.
+    """Restore seeded demo state. RESTRICTED TO THE SEEDED DEMO ACCOUNTS.
 
-    GATED, DELIBERATELY. This calls drop_all(), which deletes every account,
-    profile, credential and event in the database before reseeding. Left
-    unauthenticated it is a one-request wipe of the entire deployment by any
-    passing stranger — which is exactly what it was until this gate was added.
+    This calls drop_all(), which destroys every account, profile, credential,
+    caregiver link and the entire append-only event log.
 
-    Two conditions must both hold:
-      1. THRESHOLD_DEMO_MODE must be enabled for the deployment. A production
-         instance holding real people's recovery data has no legitimate use for
-         a "delete everything" button, so there it simply does not exist.
-      2. The caller must be signed in. The demo credentials are published, so
-         this costs an evaluator one click and costs a drive-by attacker the
-         whole attack.
+    The previous gate was DEMO_MODE + any signed-in user, and a security review
+    proved that is not a gate at all: the demo credentials are published in the
+    README and printed on the login page, so "must be signed in" cost an
+    attacker one extra request. An ordinary registered member was able to
+    destroy every other account on the deployment.
+
+    Three conditions now, all required:
+      1. THRESHOLD_DEMO_MODE enabled — a production instance holding real
+         recovery data has no legitimate use for a delete-everything button.
+      2. Signed in.
+      3. The caller is one of the SEEDED DEMO ACCOUNTS. A real account someone
+         registered cannot reset the deployment, so an evaluator retains the
+         button while a passing attacker who registers does not.
+
+    For this product the destruction is worse than a leak: deleting a member's
+    caregiver links mid-relapse removes the escalation path keeping them alive.
     """
     if os.getenv("THRESHOLD_DEMO_MODE", "").lower() not in ("1", "true", "yes"):
         raise HTTPException(
-            status_code=403,
-            detail="Demo reset is disabled on this deployment.",
+            status_code=403, detail="Demo reset is disabled on this deployment."
         )
 
-    try:
-        from app import auth
+    from app import auth, seed
 
-        if not auth.user_from_request(request):
-            raise HTTPException(
-                status_code=401,
-                detail="Sign in to reset the demo. Credentials are on the login page.",
-            )
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Sign in to reset the demo.")
+    user = auth.user_from_request(request)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Sign in to reset the demo. Credentials are on the login page.",
+        )
+
+    # The allowlist is the actual control. Everything above it is defence in
+    # depth; this line is what stops a registered stranger wiping the database.
+    if user.username not in seed.DEMO_ACCOUNTS:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the seeded demo accounts can reset this deployment.",
+        )
 
     _tiers.clear()
     try:
-        from app import seed
-
         seed.reset()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"reset failed: {exc}")

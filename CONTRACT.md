@@ -10,7 +10,8 @@ is wrong, say so rather than diverging.
    visibly. A fallback is labelled a fallback, always.
 3. **Every feature must work end-to-end**, in any order, clicked by a stranger with
    no instructions. Not just along the demo path.
-4. **Auth exists, but must never block an evaluator.** Username + password.
+4. **Auth exists, but must never block an evaluator.** New accounts use full
+   name + email + phone + password, with email verification and no phone OTP.
    Demo credentials are printed on the login screen AND pre-filled in the form,
    and repeated in the README. One-click "sign in as demo user" / "sign in as
    caregiver" buttons. Registration works end-to-end so an evaluator can make
@@ -42,7 +43,8 @@ Comment thoroughly and in detail:
 
 - `app/triage.py` is a **pure, deterministic state machine**. It never imports
   `genai`. It never makes a network call. It is the safety-critical path.
-- `app/genai.py` is the **only** module that touches the network.
+- `app/genai.py` is the only module that calls OpenRouter. `app/voice.py` calls
+  ElevenLabs and `app/email.py` calls Resend; all provider keys remain server-side.
 - The model does language work only: composing, selecting, summarising, translating.
   It never decides a tier.
 - Good Samaritan legal text is a **static reviewed dataset** in `data/legal/`.
@@ -54,8 +56,9 @@ Comment thoroughly and in detail:
 
 ## GenAI access
 
-Provider: OpenRouter. Model: `google/gemini-2.5-flash` for fast/interactive paths,
-`google/gemini-2.5-pro` for script generation and caregiver summaries.
+Provider: OpenRouter. Model: `google/gemini-3.1-flash-lite` for fast/interactive
+paths and `google/gemini-3.1-flash-lite-preview` for prepared scripts and
+caregiver summaries.
 Key comes from `OPENROUTER_API_KEY` env var. **It is not set yet.** Code must:
 - start cleanly without it,
 - surface a clear "AI offline — no API key" state in the UI,
@@ -64,7 +67,8 @@ Key comes from `OPENROUTER_API_KEY` env var. **It is not set yet.** Code must:
 ## HTTP API (frozen — frontend and backend both depend on this)
 
 ```
-POST /api/auth/register  {username, password, role}  -> sets session cookie
+POST /api/auth/register  {full_name, email, phone, password, role} -> sends email code
+POST /api/auth/register/verify {pending_id, code} -> creates account + sets session
 POST /api/auth/login     {username, password}        -> sets session cookie
 POST /api/auth/logout
 GET  /api/auth/me                   -> {username, role} or 401
