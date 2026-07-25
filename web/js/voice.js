@@ -134,9 +134,11 @@ function showClonedLabel(on, name = '') {
 /* The currently playing cloud audio, so a new utterance can cut off an old one
    rather than talking over it — and so the label is cleared when it does. */
 let currentAudio = null;
+let currentSource = null;
 let reusableAudio = null;
 let audioPrimed = false;
 let audioPriming = false;
+let audioContext = null;
 let fallbackEl = null;
 
 function showFallbackNotice(message = 'ElevenLabs was unavailable — using this device’s voice.') {
@@ -187,6 +189,15 @@ function silentWavUrl() {
  * then loaded into the same element instead of a new autoplay-blocked one.
  */
 export function primeAudioPlayback() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (AudioContextClass && !audioContext) {
+    audioContext = new AudioContextClass();
+  }
+  if (audioContext?.state === 'suspended') {
+    // Called directly from the user's tap. Once resumed here, decoded
+    // ElevenLabs bytes can be started after the network request finishes.
+    audioContext.resume().catch(() => {});
+  }
   if (audioPrimed || audioPriming || typeof Audio === 'undefined') return;
   audioPriming = true;
   reusableAudio ||= new Audio();
@@ -231,6 +242,10 @@ export function speakInBrowser(text, { loud = false } = {}) {
 /** Stop whatever is currently speaking, from either channel, and drop the label. */
 export function cancelSpeech() {
   window.speechSynthesis?.cancel();
+  if (currentSource) {
+    try { currentSource.stop(); } catch { /* already ended */ }
+    currentSource = null;
+  }
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
@@ -249,6 +264,34 @@ export function cancelSpeech() {
  * @returns {Promise<boolean>} Whether playback actually started.
  */
 async function playCloned(blob, { cloned, name }) {
+  // Web Audio is the reliable path for audio returned after an async request.
+  // Its context is unlocked synchronously in primeAudioPlayback() when the user
+  // taps the voice control; source.start() is therefore not treated as
+  // unsolicited autoplay when ElevenLabs bytes arrive a moment later.
+  if (audioContext) {
+    try {
+      if (audioContext.state === 'suspended') await audioContext.resume();
+      const bytes = await blob.arrayBuffer();
+      const buffer = await audioContext.decodeAudioData(bytes.slice(0));
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      currentSource = source;
+      if (cloned) showClonedLabel(true, name);
+      source.onended = () => {
+        if (currentSource === source) currentSource = null;
+        showClonedLabel(false);
+      };
+      source.start(0);
+      return true;
+    } catch {
+      currentSource = null;
+      showClonedLabel(false);
+      // Fall through to the reusable <audio> element for browsers without
+      // MP3 decoding in Web Audio or with a vendor-specific implementation.
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const audio = reusableAudio || new Audio();
   reusableAudio = audio;

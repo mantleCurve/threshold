@@ -133,7 +133,7 @@
     </header>
 
     <!-- ------------------------------------------------------------------
-         VOICE PUSH-TO-TALK — the primary interaction of the product.
+         VOICE TAP-TO-TALK — the primary interaction of the product.
          A real <button>, so space and enter work for free and it is announced
          as a button. aria-pressed carries the recording state (not a colour
          change alone). Pointer, keyboard, and touch are all the JS agent's;
@@ -144,8 +144,8 @@
 
       <button type="button" class="ptt" id="talk" aria-pressed="false"
               aria-describedby="talk-hint">
-        <span class="ptt__label" id="ptt-label">Hold to talk</span>
-        <span class="ptt__hint">or press space</span>
+        <span class="ptt__label" id="ptt-label">Tap to talk</span>
+        <span class="ptt__hint">tap again to stop</span>
       </button>
 
       <!-- The amplitude meter is confirmation only. JS sets --level: 0..1.
@@ -341,6 +341,6 @@
   </div>
 </div>
 
-<script src="/static/js/app.js?v=20260725-4" type="module"></script>
+<script src="/static/js/app.js?v=20260725-5" type="module"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 
    WHAT THIS FILE DOES
      Binds the DOM hooks in index.html to the API in CONTRACT.md, drives the
-     tier transformation, runs push-to-talk voice input, and keeps the ladder
+     tier transformation, runs tap-to-talk voice input, and keeps the ladder
      in sync with the server.
 
    WHAT THIS FILE DELIBERATELY DOES NOT DO
@@ -28,7 +28,7 @@
 import {
   primeAudioPlayback,
   speakWithChosenVoice,
-} from '/static/js/voice.js?v=20260725-4';
+} from '/static/js/voice.js?v=20260725-5';
 
 /* -------------------------------------------------------------------------- */
 /* API helpers                                                                 */
@@ -538,9 +538,9 @@ let recognition = null;
 let listening = false;
 
 /**
- * Wire the push-to-talk control.
+ * Wire the tap-to-talk control.
  *
- * Push-to-talk rather than always-on listening. Always-on would materially
+ * Tap-to-talk rather than always-on listening. Always-on would materially
  * improve Tier 5 detection, and it is also the single biggest trust cost this
  * product could pay: a microphone that is always open is a reason to leave the
  * phone in another room, and a phone in another room protects nobody
@@ -609,7 +609,7 @@ function initVoice() {
 
   recognition.addEventListener('end', () => {
     setRecording(false);
-    if (label && !label.textContent) label.textContent = 'Hold to talk';
+    if (label) label.textContent = 'Tap to talk';
   });
 
   recognition.addEventListener('error', (e) => {
@@ -642,41 +642,21 @@ function initVoice() {
   const stop = () => {
     if (!listening) return;
     setRecording(false);
-    if (label) label.textContent = 'Hold to talk';
+    if (label) label.textContent = 'Tap to talk';
     try { recognition.stop(); } catch { /* never started */ }
   };
 
-  btn.addEventListener('pointerdown', (e) => {
-    // Capture the pointer so a finger that slides off the circle still delivers
-    // its pointerup here. Without capture the browser retargets the release to
-    // whatever is under the finger and we never hear about it — which is one of
-    // the two ways this control could stick in the recording state.
-    try { btn.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
-    start();
+  btn.addEventListener('click', () => {
+    if (listening) stop();
+    else start();
   });
-  btn.addEventListener('pointerup', stop);
-
-  // The other stuck-on path. pointercancel fires when the OS takes the gesture
-  // away — a scroll takes over, a call arrives, the browser decides this is a
-  // pan. No pointerup ever follows, so without this the microphone stays open
-  // with the button claiming to be pressed. lostpointercapture is the belt to
-  // that braces: whatever the reason capture ended, recording ends with it.
-  btn.addEventListener('pointercancel', stop);
-  btn.addEventListener('lostpointercapture', stop);
 
   // Releasing outside the window (drag off the tab, alt-tab mid-press) also
   // never produces a pointerup on the button.
   window.addEventListener('blur', stop);
 
-  // Keyboard equivalent. A press-and-hold control that only works with a mouse
-  // excludes keyboard and switch users from the product's primary interaction.
-  btn.addEventListener('keydown', (e) => {
-    if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); start(); }
-  });
-  btn.addEventListener('keyup', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stop(); }
-  });
-  // A keyboard user who tabs away mid-hold never sends the keyup.
+  // A real button supplies the same click event for Space and Enter, so keyboard,
+  // switch, touch and pointer users all get the identical toggle interaction.
   btn.addEventListener('blur', stop);
 }
 
