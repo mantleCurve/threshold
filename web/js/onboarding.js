@@ -488,8 +488,9 @@ function initInvite() {
   a vault clip through speechSynthesis. No option offered here imitates a
   specific caregiver, and none ever will.
 
-  PRD §7.2 declined voice cloning deliberately, and the reasoning is worth
-  keeping next to the code so nobody "improves" this into a cloning feature:
+  The PRD permits voice cloning only through the caregiver-owned consent flow;
+  keeping that boundary next to this code prevents profile audio from becoming
+  an accidental cloning input:
   consent obtained in calm is spent in crisis. A person who agreed months ago
   that their sister's voice could be synthesised is not the person hearing it at
   tier 4, and a disclosure label does no cognitive work whatsoever on someone

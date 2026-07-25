@@ -144,13 +144,11 @@ is no hidden log.
 
 ## Deliberate omissions
 
-- **Voice cloning: declined, then rebuilt with the consent inverted.** The
-  original objection was that consent is obtained in calm and spent in crisis.
-  The shipped version answers that by making the *person being cloned* the one
-  who consents, in their own session, with the wording stored verbatim — and by
-  keeping recording, sharing and using as three separate decisions, each
-  revocable. That is a genuinely stronger position than either shipping it
-  naively or declining it. Memory Vault clips remain real recordings.
+- **Caregiver voice cloning uses a two-party consent chain.** The *person being
+  cloned* consents in their own session with wording stored verbatim; recording,
+  sharing, and member selection are separate revocable decisions. Every
+  utterance is visibly labelled, presence claims are prohibited, and revocation
+  deletes the provider-side model. Memory Vault clips remain real recordings.
 - **No always-on listening.** It would materially improve Tier 5 detection and is
   the single largest trust cost available — an always-open microphone is a reason
   to leave the phone in another room, and a phone in another room protects nobody.

@@ -369,9 +369,10 @@ summary:focus-visible,
 
 .btn--primary {
   --btn-bg: var(--accent);
-  --btn-fg: var(--accent-ink);
+  --btn-fg: #f7fbfa;
   --btn-line: var(--accent);
   font-weight: 650;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.22);
 }
 .btn--primary:hover {
   --btn-bg: color-mix(in oklab, var(--accent) 84%, white);
@@ -379,9 +380,8 @@ summary:focus-visible,
 }
 
 /* Quiet buttons drop the fill and the border, NOT the hit area. They inherit
-   .btn's min-height: 2.75rem (44px) and keep a 44px floor on the cross axis
-   too — "Sign out" and "Reset demo state" are small, low-contrast targets and
-   a shaking or imprecise hand needs the same target size as anywhere else.
+   .btn's min-height: 2.75rem (44px) and keep a 44px floor on the cross axis.
+   A shaking or imprecise hand needs the same target size as anywhere else.
    WCAG 2.5.8 / 2.5.5. */
 .btn--quiet {
   --btn-bg: transparent;

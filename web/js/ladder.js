@@ -310,13 +310,6 @@ function exportLog() {
 function initControls() {
   document.getElementById('export-log')?.addEventListener('click', exportLog);
 
-  document.getElementById('reset-demo')?.addEventListener('click', async () => {
-    // No confirmation dialog: this is a labelled demo control on a seeded
-    // account, and the server broadcasts a reset that reloads every open page.
-    await post('/api/reset').catch(() => {});
-    window.location.reload();
-  });
-
   document.getElementById('logout')?.addEventListener('click', async () => {
     await post('/api/auth/logout').catch(() => {});
     window.location.href = '/login';

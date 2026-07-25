@@ -53,7 +53,7 @@ express it in `tiers.css` against `[data-tier="N"]`.
 
 | attribute | behaviour |
 |---|---|
-| `data-chrome` | Furniture. `display: none !important` at tiers 3, 4, 5. Also leaves the a11y tree and tab order. Use for nav, settings, demo controls, secondary cards. |
+| `data-chrome` | Furniture. `display: none !important` at tiers 3, 4, 5. Also leaves the a11y tree and tab order. Use for nav, settings, and secondary cards. |
 | `data-when-tier="2 3"` | Hidden by default; displayed only at the listed tiers. Use for escalation-only actions. |
 
 Both are pure CSS. JS never toggles them.

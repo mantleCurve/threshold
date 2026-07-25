@@ -4,9 +4,8 @@
 
    WHAT THIS FILE DOES
      Submits the three auth forms to the API in CONTRACT.md, surfaces the
-     SERVER'S OWN error text inline, and redirects to the surface that matches
-     the account's role on success. It also wires the one-tap "Sign in as Sam" /
-     "Sign in as Sarah" buttons that CONTRACT ground rule 4 requires.
+   SERVER'S OWN error text inline, and redirects to the surface that matches
+   the account's role on success.
 
      All three pages share this file because they are the same interaction with
      different payloads. One file, three `if (form) …` guards — separate modules
@@ -169,11 +168,6 @@ function setPending(btn, pending, idleText) {
 /**
  * Sign in with an explicit username and password.
  *
- * Shared by the form submit handler and the one-tap demo buttons, so there is
- * exactly one sign-in code path. Three routes into the product (typed, pre-filled
- * Enter, one tap) that all exercise the same request is three routes that cannot
- * drift apart and leave one of them broken for an evaluator.
- *
  * @param {string} username
  * @param {string} password
  * @param {HTMLButtonElement|null} btn Button to hold in its pending state.
@@ -198,7 +192,7 @@ async function signIn(username, password, btn) {
   document.getElementById('login-error')?.focus?.();
 }
 
-/** Wire login.html: the form plus the two one-tap demo buttons. */
+/** Wire the production login form. */
 function initLogin() {
   const form = document.getElementById('login-form');
   if (!form) return;
@@ -212,30 +206,6 @@ function initLogin() {
     const username = form.querySelector('#username')?.value.trim() || '';
     const password = form.querySelector('#password')?.value || '';
     signIn(username, password, submit);
-  });
-
-  /*
-    ONE-TAP DEMO SIGN-IN (CONTRACT ground rule 4).
-    The credentials live in data-demo-user / data-demo-pass on the buttons in
-    login.html, so the printed credentials, the pre-filled inputs, and these
-    buttons all come from the markup — there is no second copy in JavaScript to
-    fall out of sync with the ones printed on the page.
-
-    Each button also fills the visible inputs before submitting. An evaluator
-    should be able to SEE which account they are entering as, not just arrive
-    somewhere. These are real <button> elements, so Enter and Space work without
-    any key handling here.
-  */
-  document.querySelectorAll('[data-demo-user]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const username = btn.dataset.demoUser || '';
-      const password = btn.dataset.demoPass || '';
-      const u = form.querySelector('#username');
-      const p = form.querySelector('#password');
-      if (u) u.value = username;
-      if (p) p.value = password;
-      signIn(username, password, btn);
-    });
   });
 }
 

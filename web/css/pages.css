@@ -7,9 +7,7 @@
 /* ==========================================================================
    AUTH — login.html / register.html
    Two columns: a statement of what the product is on the left, the form on
-   the right. Demo credentials are PRINTED, not hidden behind a tooltip — the
-   contract says an evaluator must never be locked out, so the credentials are
-   the second thing on the page, styled as a first-class element.
+   the right. Every auth page includes an explicit route back to the homepage.
    ========================================================================== */
 
 .auth {
@@ -44,6 +42,7 @@
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--ink);
+  text-decoration: none;
 }
 .wordmark span { color: var(--accent); }
 
@@ -71,30 +70,6 @@
 .auth__ladder li:nth-child(4) b { color: var(--accent-3); }
 .auth__ladder li:nth-child(5) b { color: var(--accent-4); }
 .auth__ladder li:nth-child(6) b { color: var(--accent-5); }
-
-/* ---- demo credentials ---------------------------------------------------
-   Monospace, boxed, deliberately prominent. The one-tap buttons below it fill
-   the form via JS; the credentials are ALSO pre-filled in the inputs, so an
-   evaluator who ignores this block still gets in by pressing Enter.
-   ------------------------------------------------------------------------ */
-.creds {
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-lg);
-  padding: var(--sp-4);
-  background: var(--canvas-deep);
-}
-.creds dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--sp-2) var(--sp-4);
-  margin: var(--sp-3) 0;
-  font-family: var(--font-data);
-  font-size: var(--step-00);
-}
-.creds dt { color: var(--ink-3); }
-.creds dd { margin: 0; color: var(--ink); }
-.creds dd b { color: var(--accent); font-weight: 600; }
-.creds .row { gap: var(--sp-2); }
 
 /* ==========================================================================
    USER SURFACE — index.html

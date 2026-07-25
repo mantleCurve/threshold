@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.models import Tier
 
@@ -218,8 +218,8 @@ class SensorRequest(_StrictBody):
 
     This is the model that fixes both defects named in the review. `silent_seconds` is
     a bounded `int`, so `"abc"` is a 422 rather than a `ValueError` inside the handler,
-    and `still` is a real `bool`, so the string `"false"` is rejected outright instead
-    of being coerced to True by Python truthiness.
+    and `still` is a strict JSON boolean, so the string `"false"` is rejected outright
+    instead of being coerced to True by Python truthiness.
 
     `ge=0` matters on the escalation path: a negative duration is not a shorter silence,
     it is a nonsense value, and clamping it silently would hide a broken client.
@@ -231,7 +231,7 @@ class SensorRequest(_StrictBody):
         le=MAX_SILENT_SECONDS,
         description="Seconds of continuous silence observed by the client.",
     )
-    still: bool = Field(
+    still: StrictBool = Field(
         default=False,
         description="Whether the device has also been motionless. Strict bool — the "
         "string \"false\" is rejected, not silently treated as True.",
@@ -239,7 +239,7 @@ class SensorRequest(_StrictBody):
 
 
 class TierRequest(_StrictBody):
-    """Body of `POST /api/tier` — explicit tier set (user tap, or demo control).
+    """Body of `POST /api/tier` — explicit tier set by a signed-in member.
 
     Typed as `Tier`, so an out-of-range integer is a 422 naming the valid values rather
     than the handler's hand-rolled `Tier(int(...))` / `except (ValueError, TypeError)`
@@ -307,6 +307,15 @@ class LadderUpdate(_StrictBody):
     )
 
 
+class ContactUpdate(_StrictBody):
+    """One ordered caregiver contact submitted during onboarding."""
+
+    name: str = Field(min_length=1, max_length=100)
+    relation: str = Field(default="", max_length=100)
+    channel: Literal["phone", "sms", "email"] = "phone"
+    tiers: list[Tier] = Field(default_factory=list, max_length=6)
+
+
 class ProfileUpdateRequest(_StrictBody):
     """Body of `POST /api/profile` — onboarding and ladder settings.
 
@@ -333,6 +342,7 @@ class ProfileUpdateRequest(_StrictBody):
     )
     naloxone_on_hand: bool | None = None
     ladder: LadderUpdate | None = None
+    contacts: list[ContactUpdate] | None = Field(default=None, max_length=10)
 
 
 # --------------------------------------------------------------------------------------

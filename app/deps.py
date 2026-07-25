@@ -67,7 +67,8 @@ class Listener:
         user_id: The authenticated account behind this stream, or None for an
             anonymous listener. An anonymous listener receives no user events at
             all — see `visible_to`.
-        queue: Unbounded per-client queue. A slow reader delays only itself.
+        queue: Bounded per-client queue. A slow reader cannot grow memory
+            without limit; when full, broadcasts retain the newest state.
     """
 
     user_id: str | None
@@ -259,8 +260,12 @@ async def _broadcast(payload: dict) -> None:
         # Failing closed here is right: a dropped notification is recoverable,
         # a 500 mid-emergency is not. Tiers 4/5 short-circuit before the read.
         try:
-            permitted = visible_to(
-                listener.user_id, subject_id, tier, live=True
+            permitted = await asyncio.to_thread(
+                visible_to,
+                listener.user_id,
+                subject_id,
+                tier,
+                live=True,
             )
         except Exception:
             log.warning("visibility check failed; withholding this event")
@@ -269,29 +274,36 @@ async def _broadcast(payload: dict) -> None:
             continue
         try:
             listener.queue.put_nowait(payload)
-        except Exception:  # pragma: no cover - defensive; a full queue is not fatal
-            pass
+        except asyncio.QueueFull:
+            # Ladder messages are state snapshots, not financial transactions.
+            # A slow tab needs the newest state, not an unbounded backlog of
+            # states it can no longer display in real time.
+            try:
+                listener.queue.get_nowait()
+                listener.queue.put_nowait(payload)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
 
 
-def _record(user_id: str, result: TriageResult, source: str) -> None:
+async def _record(user_id: str, result: TriageResult, source: str) -> Event:
     """Apply a triage decision: update the live tier and append to the audit log.
 
     PRD §11: every event is visible to the user. There is no hidden log — this is the
     only write path for ladder history, and nothing in the app filters it on read.
     """
     _tiers[user_id] = result.tier
-    store.append_event(
-        Event(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            at=_now(),
-            tier=result.tier,
-            trigger_source=source,
-            reason=result.reason,
-            actions_planned=[a.kind for a in result.actions],
-            actions_taken=[],
-        )
+    event = Event(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        at=_now(),
+        tier=result.tier,
+        trigger_source=source,
+        reason=result.reason,
+        actions_planned=[a.kind for a in result.actions],
+        actions_taken=[],
     )
+    await asyncio.to_thread(store.append_event, event)
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -363,14 +375,7 @@ def _result_payload(result: TriageResult) -> dict:
 # server-side from the consented link, and a client-supplied id is never
 # consulted anywhere in this file.
 def _session_user(request: Request) -> str:
-    """Resolve the acting user id from the session cookie.
-
-    Falls back to the seeded demo user rather than raising. This is a deliberate
-    trade-off for a judged hackathon build: an evaluator poking at an API endpoint
-    directly should see the product work, not a 401. Authentication still gates the
-    UI surfaces and still proves the security work; it simply is not allowed to make
-    a feature look broken.
-    """
+    """Resolve the signed-in account or reject the private request."""
     try:
         from app import auth
 
@@ -380,46 +385,12 @@ def _session_user(request: Request) -> str:
     except Exception:
         pass
 
-    # Fall back to the seeded demo user, resolved BY USERNAME rather than by a
-    # hardcoded id. Seeded accounts get generated UUIDs, so assuming the id is
-    # literally "sam" silently produced an empty profile — the kind of bug that
-    # looks like a broken feature to an evaluator rather than a wiring mistake.
-    #
-    # SCOPE OF THIS FALLBACK: it resolves to the *published demo account* only.
-    # Its credentials are printed on the login page and in the README, so nothing
-    # reachable through it is private — it is a fixture, not a person. A real
-    # registered account is never served to an anonymous caller, because that
-    # would hand out someone's home address and door entry code.
-    # See _require_own_profile() for the endpoints that enforce that boundary.
-    demo = store.get_user_by_username("sam")
-    return demo.id if demo else "sam"
+    raise HTTPException(status_code=401, detail="Sign in to continue.")
 
 
 def _require_own_profile(request: Request) -> str:
-    """Resolve the acting user for endpoints that expose personal detail.
-
-    Stricter than `_session_user`. The 911 script contains a home address, an
-    apartment number, and a door entry code; the profile contains substances used.
-    That is the most dangerous data in the product — precisely what someone would
-    want in order to find a person who is using — so it requires a real session.
-
-    The published demo account remains reachable without one, because its details
-    are fictional and printed publicly. Everything else demands authentication.
-    """
-    try:
-        from app import auth
-
-        user = auth.user_from_request(request)
-        if user:
-            return user.id
-    except Exception:
-        pass
-
-    demo = store.get_user_by_username("sam")
-    if demo:
-        return demo.id
-
-    raise HTTPException(status_code=401, detail="Sign in to view this.")
+    """Resolve the signed-in owner for endpoints exposing personal details."""
+    return _session_user(request)
 
 
 def authenticated_user_id(request: Request) -> str | None:
@@ -477,9 +448,7 @@ def resolve_subject(request: Request) -> str:
     """
     caller = authenticated_user_id(request)
     if caller is None:
-        # Anonymous: the published demo fixture, exactly as `_session_user`
-        # documents. Nothing private is reachable this way.
-        return _session_user(request)
+        raise HTTPException(status_code=401, detail="Sign in to continue.")
 
     user = store.get_user(caller)
     if user is None or user.role != "caregiver":
@@ -551,7 +520,11 @@ async def _generate(builder, *, fast: bool, owner_id: str | None = None, **kwarg
         # does not exist would make a deletion report overstate what it removed.
         if owner_id and gen.live:
             try:
-                store.record_cache_owner(genai.cache_key(gen.model, system, user), owner_id)
+                await asyncio.to_thread(
+                    store.record_cache_owner,
+                    genai.cache_key(gen.model, system, user),
+                    owner_id,
+                )
             except Exception as exc:  # pragma: no cover - bookkeeping is best-effort
                 # A failure here must not turn a successful generation into an
                 # error on a crisis screen. Logged loudly because the consequence

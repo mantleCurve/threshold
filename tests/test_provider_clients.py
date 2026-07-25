@@ -131,26 +131,22 @@ async def test_email_shared_client_lifecycle(monkeypatch):
 async def test_voice_model_routing_and_failures(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "voice-secret")
     expressive = Client(Response(content=b"expressive"))
-    monkeypatch.setattr(voice.httpx, "AsyncClient", lambda **kwargs: expressive)
+    monkeypatch.setattr(voice, "_http", lambda: expressive)
     result = await voice.synthesize("Take a breath.")
     assert result.live is True
     assert result.model_id == "eleven_v3"
     assert expressive.calls[0][2]["json"]["model_id"] == "eleven_v3"
 
     urgent = Client(Response(content=b"urgent"))
-    monkeypatch.setattr(voice.httpx, "AsyncClient", lambda **kwargs: urgent)
+    monkeypatch.setattr(voice, "_http", lambda: urgent)
     result = await voice.synthesize("Call 911.", urgent=True)
     assert result.model_id == "eleven_flash_v2_5"
     assert urgent.calls[0][2]["json"]["model_id"] == "eleven_flash_v2_5"
 
-    monkeypatch.setattr(
-        voice.httpx, "AsyncClient", lambda **kwargs: Client(Response(429))
-    )
+    monkeypatch.setattr(voice, "_http", lambda: Client(Response(429)))
     assert (await voice.synthesize("Hello")).live is False
     monkeypatch.setattr(
-        voice.httpx,
-        "AsyncClient",
-        lambda **kwargs: Client(error=httpx.ConnectError("voice-secret")),
+        voice, "_http", lambda: Client(error=httpx.ConnectError("voice-secret"))
     )
     failed = await voice.synthesize("Hello")
     assert failed.live is False
@@ -171,31 +167,27 @@ async def test_voice_listing_cloning_deletion_and_offline(monkeypatch):
         {"voice_id": "clone", "name": "Caregiver", "category": "cloned"},
         {"name": "broken"},
     ]}))
-    monkeypatch.setattr(voice.httpx, "AsyncClient", lambda **kwargs: listing)
+    monkeypatch.setattr(voice, "_http", lambda: listing)
     assert [v["voice_id"] for v in await voice.list_voices()] == ["stock", "clone"]
 
     created = Client(Response(201, {"voice_id": "new-clone"}))
-    monkeypatch.setattr(voice.httpx, "AsyncClient", lambda **kwargs: created)
+    monkeypatch.setattr(voice, "_http", lambda: created)
     assert await voice.clone_supporter_voice(
         "Caregiver", [("sample.mp3", b"audio")]
     ) == ("new-clone", None)
 
     deleted = Client(Response(204))
-    monkeypatch.setattr(voice.httpx, "AsyncClient", lambda **kwargs: deleted)
+    monkeypatch.setattr(voice, "_http", lambda: deleted)
     assert await voice.delete_voice("new-clone") is True
 
-    monkeypatch.setattr(
-        voice.httpx, "AsyncClient", lambda **kwargs: Client(Response(500))
-    )
+    monkeypatch.setattr(voice, "_http", lambda: Client(Response(500)))
     assert (await voice.clone_supporter_voice(
         "Caregiver", [("sample.mp3", b"audio")]
     ))[0] is None
     assert await voice.delete_voice("new-clone") is False
 
     monkeypatch.setattr(
-        voice.httpx,
-        "AsyncClient",
-        lambda **kwargs: Client(error=httpx.ConnectError("down")),
+        voice, "_http", lambda: Client(error=httpx.ConnectError("down"))
     )
     assert await voice.list_voices() == []
     assert (await voice.clone_supporter_voice(

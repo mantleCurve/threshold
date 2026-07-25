@@ -991,24 +991,6 @@ function initControls() {
     });
   });
 
-  // Demo controls: set a tier directly so an evaluator can inspect any state
-  // without performing a distressing script out loud in a crowded room.
-  document.querySelectorAll('[data-set-tier]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const res = await post('/api/tier', { tier: Number(btn.dataset.setTier) });
-      renderTier(res.tier, res.reason);
-      addSystemNote(res.reason);
-    });
-  });
-
-  // Silence simulation — the desktop stand-in for a phone's accelerometer.
-  // Labelled as a simulation in the UI rather than dressed up as real sensing.
-  document.getElementById('sim-silence')?.addEventListener('click', async () => {
-    const res = await post('/api/sensor', { silent_seconds: 30, still: true });
-    renderTier(res.tier, res.reason);
-    addSystemNote(res.reason);
-  });
-
   // ---- Tier 3 "If you are using" row ------------------------------------
   // All three render into #harm-panel, the one card that actually exists in
   // that section. The previous code targeted #samaritan-panel and #script-911,
@@ -1047,11 +1029,6 @@ function initControls() {
   // start_grounding action at Tier 2 (app/triage.py), so the button was
   // promising something the backend had genuinely decided to offer.
   document.getElementById('start-grounding')?.addEventListener('click', startGrounding);
-
-  document.getElementById('reset-demo')?.addEventListener('click', async () => {
-    await post('/api/reset');
-    window.location.reload();
-  });
 
   document.getElementById('logout')?.addEventListener('click', async () => {
     await post('/api/auth/logout').catch(() => {});

@@ -149,8 +149,8 @@
 
 /* ==========================================================================
    MECHANISM 1 — CHROME REMOVAL
-   Anything marked [data-chrome] is furniture: nav, settings, secondary cards,
-   demo controls. It exists at tiers 0-2 and is REMOVED (display:none, not just
+   Anything marked [data-chrome] is furniture: nav, settings, and secondary
+   cards. It exists at tiers 0-2 and is REMOVED (display:none, not just
    hidden) at tiers 3+. display:none also pulls it out of the accessibility
    tree and out of the tab order, so a screen-reader user at Tier 4 lands on
    the emergency action immediately instead of tabbing past dead navigation.

@@ -35,10 +35,10 @@ def test_contact_validation_and_persistence(tmp_path, monkeypatch):
 
     monkeypatch.setattr(main, "DATA_DIR", tmp_path)
     with TestClient(app) as client:
-        assert client.post("/api/contact", json={}).status_code == 400
+        assert client.post("/api/contact", json={}).status_code == 422
         assert client.post("/api/contact", json={
             "name": "A", "email": "a@example.com", "message": "x" * 5001,
-        }).status_code == 413
+        }).status_code == 422
         response = client.post("/api/contact", json={
             "name": "A", "email": "a@example.com", "message": "Please contact me.",
         })

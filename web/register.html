@@ -24,7 +24,8 @@
 
   <aside class="auth__aside">
     <div class="stack">
-      <p class="wordmark">Thresh<span>o</span>ld</p>
+      <a class="btn btn--quiet" href="/home" style="align-self: flex-start;">← Back to homepage</a>
+      <a class="wordmark" href="/home" aria-label="Threshold homepage">Thresh<span>o</span>ld</a>
       <p class="lede" style="max-width: 26ch;">
         Nothing here is hidden from you. Not the log, not the rules, not what your people can see.
       </p>
@@ -59,7 +60,7 @@
 
       <div class="stack-tight">
         <h1 class="display" style="font-size: var(--step-4);">Create an account</h1>
-        <p class="hint">Or use the printed demo credentials on the <a href="/login" class="mark">sign-in page</a>.</p>
+        <p class="hint">Email verification keeps your recovery information tied to you.</p>
       </div>
 
       <form class="stack" id="register-form" method="post" action="/api/auth/register" novalidate>

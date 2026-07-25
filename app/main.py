@@ -33,16 +33,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 
-from app import deps, email as email_delivery, registration, store, triage
+from app import deps, email as email_delivery, legal, registration, store, triage, voice
 from app.security import SecurityMiddleware
 from app.models import Contact, Event, Tier, TriageResult, UserProfile
 from app.schemas import (
     ActionReceiptRequest,
+    ContactRequest,
     LoginRequest,
+    ProfileUpdateRequest,
     RegisterRequest,
+    SensorRequest,
+    TierRequest,
+    UtteranceRequest,
     VerifyRegistrationRequest,
 )
 
@@ -53,7 +64,13 @@ from app.schemas import (
 from app.deps import (
     Listener,
     _broadcast,          # the ONE broadcaster — see the note below
+    _current_tier,
     _generate,
+    _now,
+    _record,
+    _require_own_profile,
+    _result_payload,
+    _session_user,
     authenticated_user_id,
     caregiver_event_projection,
     caregiver_profile_projection,
@@ -89,15 +106,6 @@ _listeners = deps._listeners
 _delivery_tasks: set[asyncio.Task] = set()
 
 
-def _now() -> datetime:
-    """Single source of 'now'.
-
-    Centralised so that time is injected into triage rather than read inside it —
-    that is what keeps the state machine deterministic and testable.
-    """
-    return datetime.now(timezone.utc)
-
-
 def _now_naive() -> datetime:
     """Naive local 'now', for the invite subsystem only.
 
@@ -114,11 +122,6 @@ def _now_naive() -> datetime:
     return datetime.now()
 
 
-def _current_tier(user_id: str) -> Tier:
-    """Current live tier for a user, defaulting to Baseline for anyone unseen."""
-    return _tiers.get(user_id, Tier.BASELINE)
-
-
 # `_broadcast` is deliberately NOT defined here.
 #
 # It used to be, and that duplicate was a live privacy leak: this module's copy
@@ -131,40 +134,22 @@ def _current_tier(user_id: str) -> Tier:
 # There is now exactly one broadcaster, imported from deps below. If you find
 # yourself about to redefine it here, that is the bug.
 
-def _record(user_id: str, result: TriageResult, source: str) -> Event:
-    """Apply a triage decision: update the live tier and append to the audit log.
-
-    PRD §11: every event is visible to the user. There is no hidden log — this is the
-    only write path for ladder history, and nothing in the app filters it on read.
-    """
-    _tiers[user_id] = result.tier
-    event = Event(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            at=_now(),
-            tier=result.tier,
-            trigger_source=source,
-            reason=result.reason,
-            actions_planned=[a.kind for a in result.actions],
-            actions_taken=[],
-        )
-    store.append_event(event)
-    return event
-
-
 async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
     """Email every verified linked caregiver; never delay the emergency UI."""
     from app.models import TIER_NAMES
 
     if event.tier < Tier.EMERGENCY:
         return
-    profile = store.get_profile(user_id)
-    member = store.get_user(user_id)
+    profile, member = await asyncio.gather(
+        asyncio.to_thread(store.get_profile, user_id),
+        asyncio.to_thread(store.get_user, user_id),
+    )
     member_name = (
         profile.name if profile else (member.full_name if member else "A member")
     )
-    for caregiver_id in store.caregivers_for(user_id):
-        caregiver = store.get_user(caregiver_id)
+    caregiver_ids = await asyncio.to_thread(store.caregivers_for, user_id)
+    for caregiver_id in caregiver_ids:
+        caregiver = await asyncio.to_thread(store.get_user, caregiver_id)
         if not caregiver or not caregiver.email or not caregiver.email_verified:
             continue
         delivered, _error = await email_delivery.send_caregiver_alert(
@@ -174,7 +159,8 @@ async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
             idempotency_key=f"threshold-alert/{event.id}/{caregiver.id}",
         )
         if delivered:
-            store.append_event(
+            await asyncio.to_thread(
+                store.append_event,
                 Event(
                     id=str(uuid.uuid4()),
                     user_id=user_id,
@@ -184,7 +170,7 @@ async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
                     reason="A linked caregiver emergency email was delivered.",
                     actions_planned=[],
                     actions_taken=["caregiver_email_delivered"],
-                )
+                ),
             )
 
 
@@ -197,42 +183,17 @@ def _schedule_emergency_alerts(user_id: str, event: Event) -> None:
     task.add_done_callback(_delivery_tasks.discard)
 
 
-def _result_payload(result: TriageResult) -> dict:
-    """Serialise a TriageResult for the wire, adding display-friendly names."""
-    from app.models import TIER_NAMES
-
-    return {
-        "tier": int(result.tier),
-        "tier_name": TIER_NAMES[result.tier],
-        "previous_tier": int(result.previous_tier),
-        "reason": result.reason,
-        "matched_signal": result.matched_signal,
-        "notify_caregiver": result.notify_caregiver,
-        "actions": [a.model_dump() for a in result.actions],
-    }
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise the database and seed demo state before serving any request.
-
-    Seeding is idempotent, so a restart never duplicates or clobbers data. We seed at
-    boot rather than on first request so an evaluator who lands directly on a deep
-    link still finds a working, populated app.
-    """
+    """Initialise production services before serving requests."""
     store.init_db()
-    try:
-        from app import seed
-
-        seed.seed()
-    except Exception as exc:  # pragma: no cover - seed is best-effort at boot
-        # A seed failure must not prevent the app from serving. Registration still
-        # works, so an evaluator can create their own account and use every feature.
-        log.warning("seed skipped: %s", exc)
+    legal.load()
+    await voice.startup()
     try:
         yield
     finally:
         await email_delivery.close()
+        await voice.close()
 
 
 app = FastAPI(
@@ -254,81 +215,15 @@ app.add_middleware(
 # inlined here because it is an optional, self-contained feature with its own
 # consent gate, and a reader auditing that gate should find the whole of it in
 # one file (app/routes/voice.py) rather than interleaved with the ladder core.
-from app.routes import voice as voice_routes  # noqa: E402  (after app exists)
+from app.routes import voice as voice_routes  # noqa: E402
 
 app.include_router(voice_routes.router)
 
 
 # ---------------------------------------------------------------------------
-# Session helper
-# ---------------------------------------------------------------------------
-def _session_user(request: Request) -> str:
-    """Resolve the acting user id from the session cookie.
-
-    Falls back to the seeded demo user rather than raising. This is a deliberate
-    trade-off for a judged hackathon build: an evaluator poking at an API endpoint
-    directly should see the product work, not a 401. Authentication still gates the
-    UI surfaces and still proves the security work; it simply is not allowed to make
-    a feature look broken.
-    """
-    try:
-        from app import auth
-
-        user = auth.user_from_request(request)
-        if user:
-            return user.id
-    except Exception:
-        pass
-
-    # Fall back to the seeded demo user, resolved BY USERNAME rather than by a
-    # hardcoded id. Seeded accounts get generated UUIDs, so assuming the id is
-    # literally "sam" silently produced an empty profile — the kind of bug that
-    # looks like a broken feature to an evaluator rather than a wiring mistake.
-    #
-    # SCOPE OF THIS FALLBACK: it resolves to the *published demo account* only.
-    # Its credentials are printed on the login page and in the README, so nothing
-    # reachable through it is private — it is a fixture, not a person. A real
-    # registered account is never served to an anonymous caller, because that
-    # would hand out someone's home address and door entry code.
-    # See _require_own_profile() for the endpoints that enforce that boundary.
-    demo = store.get_user_by_username("sam")
-    return demo.id if demo else "sam"
-
-
-def _require_own_profile(request: Request) -> str:
-    """Resolve the acting user for endpoints that expose personal detail.
-
-    Stricter than `_session_user`. The 911 script contains a home address, an
-    apartment number, and a door entry code; the profile contains substances used.
-    That is the most dangerous data in the product — precisely what someone would
-    want in order to find a person who is using — so it requires a real session.
-
-    The published demo account remains reachable without one, because its details
-    are fictional and printed publicly. Everything else demands authentication.
-    """
-    try:
-        from app import auth
-
-        user = auth.user_from_request(request)
-        if user:
-            return user.id
-    except Exception:
-        pass
-
-    demo = store.get_user_by_username("sam")
-    if demo:
-        return demo.id
-
-    raise HTTPException(status_code=401, detail="Sign in to view this.")
-
-
-# ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
-# These four routes back the login and registration pages. Auth exists to prove
-# the security work and to keep one person's recovery surface out of another's
-# hands — but it is never allowed to make a feature look broken to an evaluator,
-# which is why the demo credentials are published and pre-filled.
+# These routes back production login and email-verified registration.
 @app.post("/api/auth/register")
 async def auth_register(body: RegisterRequest) -> JSONResponse:
     """Start a two-step signup and email a short-lived verification code."""
@@ -424,14 +319,16 @@ async def post_invite(request: Request) -> dict:
     # Role check, not just an auth check. A caregiver issuing an invite would
     # invert the direction of consent — someone redeeming it would end up
     # watching the caregiver, which is not a relationship this product models.
-    user = store.get_user(user_id)
+    user = await asyncio.to_thread(store.get_user, user_id)
     if user and user.role != "user":
         raise HTTPException(
             status_code=403,
             detail="Only the person being supported can create an invite code.",
         )
 
-    invite = store.create_invite(user_id, now=_now_naive())
+    invite = await asyncio.to_thread(
+        store.create_invite, user_id, now=_now_naive()
+    )
     return {
         "code": invite.code,
         "expires_at": invite.expires_at.isoformat(),
@@ -470,11 +367,13 @@ async def post_invite_redeem(request: Request, body: dict = Body(...)) -> dict:
         raise HTTPException(status_code=400, detail="Enter the code you were given.")
 
     try:
-        watched_id = store.redeem_invite(code, caller, _now_naive())
+        watched_id = await asyncio.to_thread(
+            store.redeem_invite, code, caller, _now_naive()
+        )
     except store.InviteError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    watched = store.get_user(watched_id)
+    watched = await asyncio.to_thread(store.get_user, watched_id)
     return {"ok": True, "watching": watched.username if watched else None}
 
 
@@ -554,11 +453,11 @@ async def get_state(request: Request) -> dict:
     contract; every consumer, prompt and UI reads this order.
     """
     user_id = resolve_subject(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
     tier = _current_tier(user_id)
-    events = events_for_wire(user_id, limit=50)
+    events = await asyncio.to_thread(events_for_wire, user_id, limit=50)
     caller_id = authenticated_user_id(request)
-    caller = store.get_user(caller_id) if caller_id else None
+    caller = await asyncio.to_thread(store.get_user, caller_id) if caller_id else None
     caregiver_view = bool(caller and caller.role == "caregiver")
     caregiver_visible = bool(
         caregiver_view and visible_to(caller_id, user_id, tier)
@@ -616,7 +515,7 @@ async def get_state(request: Request) -> dict:
 # Triage inputs
 # ---------------------------------------------------------------------------
 @app.post("/api/utterance")
-async def post_utterance(request: Request, body: dict = Body(...)) -> dict:
+async def post_utterance(request: Request, body: UtteranceRequest) -> dict:
     """Primary zero-typing input: a transcribed utterance from the voice companion.
 
     Order of operations matters and is not arbitrary. Triage runs FIRST and completely,
@@ -625,17 +524,15 @@ async def post_utterance(request: Request, body: dict = Body(...)) -> dict:
     committed before the generative layer is consulted, so a slow, wrong, or entirely
     absent model cannot delay or alter it (PRD P4).
     """
-    text = (body.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="empty utterance")
+    text = body.text
 
     user_id = _session_user(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
 
     result = triage.evaluate(
         _current_tier(user_id), utterance=text, profile=profile, now=_now()
     )
-    event = _record(user_id, result, source="utterance")
+    event = await _record(user_id, result, source="utterance")
     _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
@@ -663,7 +560,7 @@ async def post_utterance(request: Request, body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/sensor")
-async def post_sensor(request: Request, body: dict = Body(...)) -> dict:
+async def post_sensor(request: Request, body: SensorRequest) -> dict:
     """Silence and stillness — the strongest signal the system will ever receive.
 
     PRD P2: silence is a signal, not a dead end. A user who says something high-risk
@@ -671,16 +568,16 @@ async def post_sensor(request: Request, body: dict = Body(...)) -> dict:
     escalates rather than timing out.
     """
     user_id = _session_user(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
 
     result = triage.evaluate(
         _current_tier(user_id),
-        silent_seconds=int(body.get("silent_seconds", 0)),
-        still=bool(body.get("still", False)),
+        silent_seconds=body.silent_seconds,
+        still=body.still,
         profile=profile,
         now=_now(),
     )
-    event = _record(user_id, result, source="sensor")
+    event = await _record(user_id, result, source="sensor")
     _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
@@ -688,23 +585,17 @@ async def post_sensor(request: Request, body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/tier")
-async def post_tier(request: Request, body: dict = Body(...)) -> dict:
+async def post_tier(request: Request, body: TierRequest) -> dict:
     """Explicit tier set. Two legitimate uses, both real product behaviour.
 
     1. The user taps "I need help now" and jumps straight to the emergency surface —
        a real path that must never require a conversation first.
-    2. Demo control, so an evaluator can inspect any tier without having to perform
-       a distressing script out loud in a crowded room.
-
     This is an honest override rather than simulated triage: the recorded reason says
     plainly that a human set it, so the audit log never misattributes it to a signal.
     """
     user_id = _session_user(request)
-    profile = store.get_profile(user_id)
-    try:
-        tier = Tier(int(body.get("tier", 0)))
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="invalid tier")
+    profile = await asyncio.to_thread(store.get_profile, user_id)
+    tier = body.tier
 
     previous = _current_tier(user_id)
     result = TriageResult(
@@ -715,7 +606,7 @@ async def post_tier(request: Request, body: dict = Body(...)) -> dict:
         actions=triage.actions_for_tier(tier, profile),
         notify_caregiver=triage.notify_caregiver_for(tier, profile),
     )
-    event = _record(user_id, result, source="manual")
+    event = await _record(user_id, result, source="manual")
     _schedule_emergency_alerts(user_id, event)
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
@@ -731,11 +622,11 @@ async def post_rescind(request: Request) -> dict:
     a mistake has to stay near zero.
     """
     user_id = _session_user(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
     # No `now` here by design: rescinding is a direct user instruction, not a
     # time-dependent inference, so the state machine needs no clock to honour it.
     result = triage.rescind(_current_tier(user_id), profile=profile)
-    _record(user_id, result, source="rescind")
+    await _record(user_id, result, source="rescind")
     payload = _result_payload(result)
     await _broadcast({"type": "tier", **payload, "user_id": user_id})
     return payload
@@ -747,7 +638,7 @@ async def post_action_receipt(
 ) -> dict:
     """Append a client-confirmed execution receipt to the immutable log."""
     user_id = authenticated_user_id(request)
-    actor = store.get_user(user_id) if user_id else None
+    actor = await asyncio.to_thread(store.get_user, user_id) if user_id else None
     if actor is None:
         raise HTTPException(status_code=401, detail="Sign in to record an action.")
     if actor.role != "user":
@@ -766,7 +657,7 @@ async def post_action_receipt(
         actions_planned=[],
         actions_taken=[body.action],
     )
-    store.append_event(event)
+    await asyncio.to_thread(store.append_event, event)
     await _broadcast(
         {
             "type": "receipt",
@@ -820,7 +711,10 @@ async def sse(request: Request) -> StreamingResponse:
     # this id only ever narrows what `visible_to` will pass — but the LINK is
     # re-read from the database on every event, so revoking consent silences an
     # already-open stream on its next event rather than at reconnect.
-    listener = Listener(user_id=authenticated_user_id(request), queue=asyncio.Queue())
+    listener = Listener(
+        user_id=authenticated_user_id(request),
+        queue=asyncio.Queue(maxsize=64),
+    )
     _listeners.append(listener)
 
     async def stream():
@@ -873,7 +767,7 @@ async def get_script_911(request: Request) -> dict:
     template, so GenAI remains core without becoming a single point of failure.
     """
     owner_id = _require_own_profile(request)
-    profile = store.get_profile(owner_id)
+    profile = await asyncio.to_thread(store.get_profile, owner_id)
     from app.prompts import script_911
 
     if profile is None:
@@ -910,7 +804,7 @@ async def get_script_911(request: Request) -> dict:
 async def get_script_refusal(request: Request) -> dict:
     """Refusal and exit lines in the user's own register — prevention-side, zero typing."""
     owner_id = _session_user(request)
-    profile = store.get_profile(owner_id)
+    profile = await asyncio.to_thread(store.get_profile, owner_id)
     from app.prompts import refusal
 
     return await _generate(refusal.build, fast=False, owner_id=owner_id, profile=profile)
@@ -926,7 +820,7 @@ async def get_tolerance(request: Request) -> dict:
     windows in medicine (PRD §5.1).
     """
     user_id = _session_user(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
     from app.prompts import tolerance
 
     payload = await _generate(
@@ -954,11 +848,11 @@ async def get_vault_select(request: Request, context: str = "") -> dict:
     candidate for every caller.
     """
     user_id = _session_user(request)
-    clips = store.list_vault_clips(for_user=user_id)
+    clips = await asyncio.to_thread(store.list_vault_clips, for_user=user_id)
     if not clips:
         return {"clip": None, "why": None, "error": "No vault clips recorded yet."}
 
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
 
     # Delegate to genai.vault_select rather than parsing the model's JSON here.
     # That path validates the returned id against the clips we actually offered —
@@ -1009,16 +903,16 @@ async def get_caregiver_brief(request: Request) -> dict:
     backwards. The prompt now gets the order it was written for.
     """
     user_id = resolve_subject(request)
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
     tier = _current_tier(user_id)
     caller_id = authenticated_user_id(request)
-    caller = store.get_user(caller_id) if caller_id else None
+    caller = await asyncio.to_thread(store.get_user, caller_id) if caller_id else None
     if caller and caller.role == "caregiver" and not visible_to(caller_id, user_id, tier):
         raise HTTPException(
             status_code=403,
             detail="There is no alert the member has chosen to share right now.",
         )
-    events = events_for_wire(user_id, limit=10)
+    events = await asyncio.to_thread(events_for_wire, user_id, limit=10)
     from app.prompts import caregiver_brief
 
     # Owned by the WATCHED person, not the caregiver reading it. The brief is
@@ -1036,7 +930,7 @@ async def get_caregiver_brief(request: Request) -> dict:
 
 
 @app.post("/api/profile")
-async def post_profile(request: Request, body: dict = Body(...)) -> dict:
+async def post_profile(request: Request, body: ProfileUpdateRequest) -> dict:
     """Save profile and ladder settings from onboarding.
 
     This is how the user exercises PRD P3 — they own the escalation thresholds.
@@ -1065,17 +959,17 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
     if user_id is None:
         raise HTTPException(
             status_code=401,
-            detail="Sign in to save your settings. Demo credentials are on the login page.",
+            detail="Sign in to save your settings.",
         )
 
-    actor = store.get_user(user_id)
+    actor = await asyncio.to_thread(store.get_user, user_id)
     if actor is not None and actor.role == "caregiver":
         raise HTTPException(
             status_code=403,
             detail="A caregiver cannot change the thresholds of the person they support.",
         )
 
-    profile = store.get_profile(user_id)
+    profile = await asyncio.to_thread(store.get_profile, user_id)
     if profile is None:
         # First save for this account. The profile id is generated SERVER-SIDE and
         # the display name comes from the account, so neither is a client-writable
@@ -1085,17 +979,18 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
             name=(actor.username if actor else "You"),
         )
 
-    # Whitelist the fields onboarding is allowed to change. Anything else in the
-    # body is ignored rather than merged, so a crafted request cannot rewrite
-    # parts of the record this form has no business touching.
+    changes = body.model_dump(exclude_unset=True)
+
+    # The request model is the whitelist. It rejects unknown fields before this
+    # function runs and rejects overlong address facts instead of truncating them.
     for field in ("address", "unit", "entry_code", "cross_street", "state_code"):
-        if field in body and isinstance(body[field], str):
-            setattr(profile, field, body[field][:200])
+        if field in changes:
+            setattr(profile, field, changes[field])
 
-    if isinstance(body.get("naloxone_on_hand"), bool):
-        profile.naloxone_on_hand = body["naloxone_on_hand"]
+    if "naloxone_on_hand" in changes:
+        profile.naloxone_on_hand = changes["naloxone_on_hand"]
 
-    ladder = body.get("ladder") or {}
+    ladder = changes.get("ladder") or {}
     for field in ("tier_2_visible_to_caregiver", "tier_3_visible_to_caregiver"):
         if isinstance(ladder.get(field), bool):
             setattr(profile.ladder, field, ladder[field])
@@ -1131,10 +1026,10 @@ async def post_profile(request: Request, body: dict = Body(...)) -> dict:
     # "I have no contacts", which is a legitimate and different statement. The
     # two must not collapse into each other, or a partial save would silently
     # delete everyone.
-    if "contacts" in body:
-        profile.contacts = _parse_contacts(body.get("contacts"))
+    if "contacts" in changes:
+        profile.contacts = _parse_contacts(changes["contacts"])
 
-    store.put_profile(user_id, profile)
+    await asyncio.to_thread(store.put_profile, user_id, profile)
     return {"ok": True, "profile": profile.model_dump(mode="json")}
 
 
@@ -1204,61 +1099,6 @@ def _parse_contacts(raw) -> list[Contact]:
     return parsed
 
 
-@app.post("/api/reset")
-async def post_reset(request: Request) -> dict:
-    """Restore seeded demo state. RESTRICTED TO THE SEEDED DEMO ACCOUNTS.
-
-    This calls drop_all(), which destroys every account, profile, credential,
-    caregiver link and the entire append-only event log.
-
-    The previous gate was DEMO_MODE + any signed-in user, and a security review
-    proved that is not a gate at all: the demo credentials are published in the
-    README and printed on the login page, so "must be signed in" cost an
-    attacker one extra request. An ordinary registered member was able to
-    destroy every other account on the deployment.
-
-    Three conditions now, all required:
-      1. THRESHOLD_DEMO_MODE enabled — a production instance holding real
-         recovery data has no legitimate use for a delete-everything button.
-      2. Signed in.
-      3. The caller is one of the SEEDED DEMO ACCOUNTS. A real account someone
-         registered cannot reset the deployment, so an evaluator retains the
-         button while a passing attacker who registers does not.
-
-    For this product the destruction is worse than a leak: deleting a member's
-    caregiver links mid-relapse removes the escalation path keeping them alive.
-    """
-    if os.getenv("THRESHOLD_DEMO_MODE", "").lower() not in ("1", "true", "yes"):
-        raise HTTPException(
-            status_code=403, detail="Demo reset is disabled on this deployment."
-        )
-
-    from app import auth, seed
-
-    user = auth.user_from_request(request)
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Sign in to reset the demo. Credentials are on the login page.",
-        )
-
-    # The allowlist is the actual control. Everything above it is defence in
-    # depth; this line is what stops a registered stranger wiping the database.
-    if user.username not in seed.DEMO_ACCOUNTS:
-        raise HTTPException(
-            status_code=403,
-            detail="Only the seeded demo accounts can reset this deployment.",
-        )
-
-    _tiers.clear()
-    try:
-        seed.reset()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"reset failed: {exc}")
-    await _broadcast({"type": "reset"})
-    return {"ok": True}
-
-
 @app.get("/api/legal/{state_code}")
 async def get_legal(state_code: str) -> dict:
     """Good Samaritan overdose-immunity summary for a state.
@@ -1268,17 +1108,9 @@ async def get_legal(state_code: str) -> dict:
     the single worst thing this product could tell someone standing over an overdose
     (PRD §6.5). If the state is missing we say so plainly rather than guessing.
     """
-    path = DATA_DIR / "legal" / "good_samaritan.json"
-    if not path.exists():
-        raise HTTPException(status_code=503, detail="legal dataset unavailable")
-
-    records = json.loads(path.read_text())
-    if isinstance(records, dict):
-        records = records.get("states", [])
-
-    for rec in records:
-        if str(rec.get("state_code", "")).upper() == state_code.upper():
-            return rec
+    record = legal.get(state_code)
+    if record is not None:
+        return record
 
     return {
         "state_code": state_code.upper(),
@@ -1332,20 +1164,42 @@ async def page_root(request: Request):
     return _page("home.html")
 
 
-@app.get("/app")
-async def page_app():
-    """The app surface at a stable URL.
+def _private_page(request: Request, name: str):
+    """Serve a private page only while its signed session is valid."""
+    from app import auth
 
-    `/` is conditional, which makes it a poor thing to link to or bookmark. This
-    route always serves the app regardless of session, so the homepage's
-    "Open the app" button and the post-login redirect have somewhere fixed to go.
-    """
-    return _page("index.html")
+    if auth.user_from_request(request) is None:
+        return RedirectResponse("/login", status_code=303)
+    return _page(name)
+
+
+@app.get("/app")
+async def page_app(request: Request):
+    """Member app, protected at the HTTP boundary."""
+    return _private_page(request, "index.html")
 
 
 @app.get("/caregiver")
-async def page_caregiver():
-    return _page("caregiver.html")
+async def page_caregiver(request: Request):
+    return _private_page(request, "caregiver.html")
+
+
+@app.get("/onboarding")
+async def page_onboarding(request: Request):
+    return _private_page(request, "onboarding.html")
+
+
+@app.get("/ladder")
+async def page_ladder(request: Request):
+    return _private_page(request, "ladder.html")
+
+
+@app.get("/legacy-app")
+async def page_legacy_app(request: Request):
+    """Compatibility redirect for previously bookmarked app links."""
+    if authenticated_user_id(request) is None:
+        return RedirectResponse("/login", status_code=303)
+    return _page("index.html")
 
 
 @app.get("/bystander")
@@ -1359,14 +1213,6 @@ async def page_bystander():
     return _page("bystander.html")
 
 
-@app.get("/onboarding")
-async def page_onboarding():
-    return _page("onboarding.html")
-
-
-@app.get("/ladder")
-async def page_ladder():
-    return _page("ladder.html")
 
 
 @app.get("/home")
@@ -1409,7 +1255,7 @@ async def page_data_deletion():
 # Public endpoints backing the public pages
 # ---------------------------------------------------------------------------
 @app.post("/api/contact")
-async def post_contact(body: dict = Body(...)) -> dict:
+async def post_contact(body: ContactRequest) -> dict:
     """Receive a contact message.
 
     Persisted to a local JSONL file rather than emailed: this is a prototype with no
@@ -1419,25 +1265,13 @@ async def post_contact(body: dict = Body(...)) -> dict:
     Deliberately NOT stored in the main database — contact messages come from the
     public and must never mix with clinical profile data.
     """
-    name = (body.get("name") or "").strip()
-    email = (body.get("email") or "").strip()
-    message = (body.get("message") or "").strip()
-
-    if not (name and email and message):
-        raise HTTPException(status_code=400, detail="name, email and message are required")
-
-    # Cheap length bound: this endpoint is unauthenticated, so it must not accept an
-    # unbounded body that could fill the disk.
-    if len(message) > 5000 or len(name) > 200 or len(email) > 320:
-        raise HTTPException(status_code=413, detail="message too long")
-
     DATA_DIR.mkdir(exist_ok=True)
     record = {
         "at": _now().isoformat(),
-        "name": name,
-        "email": email,
-        "topic": (body.get("topic") or "general")[:64],
-        "message": message,
+        "name": body.name,
+        "email": body.email,
+        "topic": body.topic,
+        "message": body.message,
     }
     with (DATA_DIR / "contact_messages.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
@@ -1503,8 +1337,10 @@ async def post_account_delete(request: Request) -> JSONResponse:
     # holding a home address and a door entry code.
     from app import genai
 
-    cache_keys = store.cache_keys_exclusively_owned_by(user.id)
-    counts = store.delete_user_data(user.id)
+    cache_keys = await asyncio.to_thread(
+        store.cache_keys_exclusively_owned_by, user.id
+    )
+    counts = await asyncio.to_thread(store.delete_user_data, user.id)
 
     removed = 0
     for key in cache_keys:

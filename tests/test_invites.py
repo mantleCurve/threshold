@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, store
+from app import auth, security, store
 from app.main import app
 
 
@@ -236,6 +236,7 @@ def client():
 
 def _sign_in(client: TestClient, username: str) -> None:
     """Sign the client in, so subsequent requests carry a real session cookie."""
+    security._hits.clear()
     res = client.post(
         "/api/auth/login", json={"username": username, "password": "threshold"}
     )

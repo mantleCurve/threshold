@@ -52,16 +52,6 @@ rules decide when emergency controls must appear.
 - Caregiver access exists only after an expiring member-generated invitation;
   permissions are enforced server-side.
 
-## Demo credentials
-
-Printed on the login screen and pre-filled in the form. No evaluator should ever be
-locked out of a feature.
-
-| Role | Username | Password |
-|---|---|---|
-| Person in recovery | `sam` | `threshold` |
-| Caregiver | `sarah` | `threshold` |
-
 **Bystander Mode at `/bystander` requires no account at all.** That is a deliberate
 product decision, not an oversight: someone standing over an overdosing stranger must
 never be asked to register.
@@ -79,7 +69,6 @@ export OPENROUTER_API_KEY=sk-or-...       # generative surfaces
 export RESEND_API_KEY=re_...              # registration email codes
 export ELEVENLABS_API_KEY=sk_...          # optional: cloud + supporter voices
 export THRESHOLD_SECRET=$(openssl rand -hex 32)   # stable session signing
-export THRESHOLD_DEMO_MODE=true           # enables POST /api/reset
 export THRESHOLD_HTTPS=true               # only when served over HTTPS
 
 python3 -m uvicorn app.main:app --reload --port 8600

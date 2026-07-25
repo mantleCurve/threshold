@@ -56,28 +56,20 @@ def test_none_silent_seconds_is_rejected_rather_than_becoming_zero():
         schemas.SensorRequest(silent_seconds=None)
 
 
-def test_the_string_false_parses_as_false_not_python_truthiness():
-    """`bool("false")` is True in Python. That silently inverts a stillness signal.
-
-    This is the highest-consequence coercion bug in the old hand-cast code: a client
-    sending the string "false" would have been read as "the device is still", which is
-    an escalation input. Pydantic parses the *boolean spelling* instead of applying
-    Python truthiness, so the value now means what the client said it meant.
-    """
-    assert schemas.SensorRequest(still="false").still is False
-    assert schemas.SensorRequest(still="False").still is False
-    assert schemas.SensorRequest(still="0").still is False
-
-    # The precise regression, stated as the comparison that used to fail.
+def test_the_string_false_is_rejected_not_python_truthiness():
+    """The API requires a JSON boolean, never a truthy string."""
+    for value in ("false", "False", "0"):
+        with pytest.raises(ValidationError):
+            schemas.SensorRequest(still=value)
     assert bool("false") is True
-    assert schemas.SensorRequest(still="false").still is not bool("false")
 
 
-def test_recognised_boolean_spellings_still_parse():
-    """Bounding must not break the legitimate spellings a real client sends."""
+def test_json_booleans_are_accepted_but_numbers_and_strings_are_not():
     assert schemas.SensorRequest(still=True).still is True
-    assert schemas.SensorRequest(still="true").still is True
-    assert schemas.SensorRequest(still=0).still is False
+    assert schemas.SensorRequest(still=False).still is False
+    for value in ("true", 0, 1):
+        with pytest.raises(ValidationError):
+            schemas.SensorRequest(still=value)
 
 
 def test_a_non_boolean_string_is_rejected_outright():

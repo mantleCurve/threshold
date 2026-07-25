@@ -215,6 +215,18 @@ def test_a_caregiver_reads_the_person_they_are_linked_to(client, world):
     assert state["profile"]["name"] == "Sam"
 
 
+def test_caregiver_baseline_state_redacts_location_and_substances(client, world):
+    """The HTTP response—not only the projection helper—enforces redaction."""
+    from app import deps
+
+    deps._tiers[world["sam"].id] = Tier.BASELINE
+    sign_in(client, "sarah-care")
+    body = client.get("/api/state").text
+    assert "SAM-ENTRY-1180" not in body
+    assert "1412 Highland Avenue" not in body
+    assert "opioids" not in body
+
+
 def test_a_caregiver_cannot_read_the_other_users_state(client, world):
     """THE CENTRAL ASSERTION. Sarah watches Sam and must never see Dana.
 
@@ -330,10 +342,13 @@ def test_one_user_cannot_write_another_users_profile(client, world):
         "/api/profile",
         json={"id": store.get_profile(world["sam"].id).id, "entry_code": "DANA-WROTE-THIS"},
     )
-    assert res.status_code == 200
+    # Unknown identity fields are rejected by the typed boundary rather than
+    # silently ignored; either policy protects Sam, but rejection exposes the
+    # malformed client immediately.
+    assert res.status_code == 422
 
     assert store.get_profile(world["sam"].id).entry_code == "SAM-ENTRY-1180"
-    assert store.get_profile(world["dana"].id).entry_code == "DANA-WROTE-THIS"
+    assert store.get_profile(world["dana"].id).entry_code == "DANA-ENTRY-4242"
 
 
 def test_a_users_tier_change_does_not_move_another_users_ladder(client, world):

@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <!--
   LOGIN — /login
-  Surface: anyone. Purpose: never lock an evaluator out (CONTRACT ground rule 4).
-  Demo credentials are PRINTED on the page, PRE-FILLED in the form, and offered
-  as one-tap buttons. Three independent routes in; all three must work.
+  Surface: anyone. Production sign-in for members and caregivers.
   data-tier is pinned to 0 here: the auth pages are outside the ladder.
 -->
 <html lang="en" data-tier="0" data-default-theme="light">
@@ -28,7 +26,8 @@
        the spine of the whole UI — is legible before an account exists. -->
   <aside class="auth__aside">
     <div class="stack">
-      <p class="wordmark">Thresh<span>o</span>ld</p>
+      <a class="btn btn--quiet" href="/home" style="align-self: flex-start;">← Back to homepage</a>
+      <a class="wordmark" href="/home" aria-label="Threshold homepage">Thresh<span>o</span>ld</a>
       <p class="lede" style="max-width: 26ch;">
         It watches for the moment things change, and it acts before you have to ask.
       </p>
@@ -61,47 +60,19 @@
       </div>
 
       <!--
-        DEMO CREDENTIALS — visible, selectable, and duplicated into the inputs
-        below. An evaluator who reads nothing can press Enter and be inside.
-      -->
-      <section class="creds" aria-labelledby="creds-h">
-        <h2 class="label" id="creds-h">Demo credentials — already filled in</h2>
-        <dl class="data">
-          <!-- COPY: "Member" is the product's noun for the person in recovery,
-               used consistently on every surface. Not "patient" (this is not a
-               clinic and they are not being treated), not "client" (not a
-               caseload), not "user" (that is the internal role string, and it
-               names them by their relationship to software rather than to their
-               own life). -->
-          <dt>Member</dt>
-          <dd><b>sam</b> / threshold</dd>
-          <dt>Caregiver</dt>
-          <dd><b>sarah</b> / threshold</dd>
-        </dl>
-        <div class="row">
-          <button type="button" class="btn btn--quiet" id="fill-user" data-demo-user="sam" data-demo-pass="threshold">
-            Sign in as Sam
-          </button>
-          <button type="button" class="btn btn--quiet" id="fill-caregiver" data-demo-user="sarah" data-demo-pass="threshold">
-            Sign in as Sarah
-          </button>
-        </div>
-      </section>
-
-      <!--
         The form posts to /api/auth/login. novalidate so our own error copy is
         used rather than the browser's; the JS agent owns submission.
       -->
       <form class="stack" id="login-form" method="post" action="/api/auth/login" novalidate>
         <div class="field">
-          <label for="username">Email <span class="hint">(or demo username)</span></label>
-          <input class="input" type="text" id="username" name="username" value="sam"
+          <label for="username">Email</label>
+          <input class="input" type="email" id="username" name="username"
                  autocomplete="username" required autocapitalize="none" spellcheck="false">
         </div>
 
         <div class="field">
           <label for="password">Password</label>
-          <input class="input" type="password" id="password" name="password" value="threshold"
+          <input class="input" type="password" id="password" name="password"
                  autocomplete="current-password" required>
         </div>
 

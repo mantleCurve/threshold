@@ -18,17 +18,11 @@ WHAT THIS MODULE DELIBERATELY DOES NOT DO
     * It never speaks as a cloned supporter without labelling it in the UI.
     * It makes no triage decision and holds no clinical logic.
 
-WHY THIS EXISTS AT ALL, GIVEN PRD §7.2
-    §7.2 declined caregiver voice cloning, and the reasoning still stands and is
-    worth restating rather than burying: consent is obtained while calm and
-    spent during crisis; a person mid-overdose or mid-panic does not process a
-    "synthesised voice" label; the model will eventually say something the real
-    person never would, and the damage attaches to the real relationship; and
-    revocation is genuinely hard — what happens to the voice model when the
-    relationship ends, or when that person dies?
-
-    The product owner has chosen to enable it. The mitigations we can actually
-    build, and which are implemented here, are:
+WHY THIS FEATURE IS DELIBERATELY CONSENTED
+    A familiar caregiver voice can reduce cognitive load when reading is hard,
+    but it also carries relationship-level risk: generated words may be heard
+    as the real person's words, and a calm-time choice is used during crisis.
+    The PRD therefore includes cloning only with structural safeguards:
       - the SUPPORTER consents, in their own account, to their own voice;
       - the MEMBER chooses to enable it, and can turn it off in one action;
       - every cloned utterance is visibly labelled as an AI voice in the UI;
@@ -37,8 +31,7 @@ WHY THIS EXISTS AT ALL, GIVEN PRD §7.2
         here with you" or anything implying the real person is live on the line,
         which is the P5 line we are not crossing.
 
-    Those mitigations are real but partial, and this comment is here so nobody
-    later mistakes "we shipped it" for "the objection was answered."
+    These controls are the feature boundary, not optional disclosure copy.
 """
 
 from __future__ import annotations
@@ -67,6 +60,30 @@ _TTS_MODEL_URGENT = os.getenv(
 _DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
 
 _TIMEOUT = httpx.Timeout(connect=4.0, read=20.0, write=10.0, pool=4.0)
+_client: httpx.AsyncClient | None = None
+
+
+async def startup() -> None:
+    """Create the shared provider client during application startup."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=_TIMEOUT)
+
+
+def _http() -> httpx.AsyncClient:
+    """Return one connection-pooled ElevenLabs client."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=_TIMEOUT)
+    return _client
+
+
+async def close() -> None:
+    """Close the pooled provider client during application shutdown."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
 
 
 @dataclass(frozen=True)
@@ -152,21 +169,20 @@ async def synthesize(
         return Speech(b"", False, vid, cloned, "Nothing to say", model_id=model_id)
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            res = await client.post(
-                f"{_API_ROOT}/text-to-speech/{vid}",
-                headers={"xi-api-key": key, "Content-Type": "application/json"},
-                json={
-                    "text": text,
-                    "model_id": model_id,
-                    "voice_settings": {
-                        "stability": 0.65 if urgent else 0.5,
-                        "similarity_boost": 0.8,
-                        "style": 0.0 if urgent else 0.3,
-                        "use_speaker_boost": True,
-                    },
+        res = await _http().post(
+            f"{_API_ROOT}/text-to-speech/{vid}",
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+            json={
+                "text": text,
+                "model_id": model_id,
+                "voice_settings": {
+                    "stability": 0.65 if urgent else 0.5,
+                    "similarity_boost": 0.8,
+                    "style": 0.0 if urgent else 0.3,
+                    "use_speaker_boost": True,
                 },
-            )
+            },
+        )
         if res.status_code != 200:
             # Never surface the provider's raw body — it can echo the request.
             return Speech(
@@ -199,10 +215,9 @@ async def list_voices() -> list[dict]:
     if not _key():
         return []
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            res = await client.get(
-                f"{_API_ROOT}/voices", headers={"xi-api-key": _key()}
-            )
+        res = await _http().get(
+            f"{_API_ROOT}/voices", headers={"xi-api-key": _key()}
+        )
         if res.status_code != 200:
             return []
         return [
@@ -247,18 +262,18 @@ async def clone_supporter_voice(
 
     try:
         files = [("files", (name, blob, "audio/mpeg")) for name, blob in samples]
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            res = await client.post(
-                f"{_API_ROOT}/voices/add",
-                headers={"xi-api-key": _key()},
-                data={
-                    "name": display_name[:64],
-                    # Stored on the provider so a later audit can show the
-                    # consent basis without opening our database.
-                    "description": "Consented supporter voice, Threshold",
-                },
-                files=files,
-            )
+        res = await _http().post(
+            f"{_API_ROOT}/voices/add",
+            headers={"xi-api-key": _key()},
+            data={
+                "name": display_name[:64],
+                # Stored on the provider so a later audit can show the
+                # consent basis without opening our database.
+                "description": "Consented supporter voice, Threshold",
+            },
+            files=files,
+            timeout=httpx.Timeout(60.0),
+        )
         if res.status_code not in (200, 201):
             return None, f"Could not create voice (HTTP {res.status_code})"
         return res.json().get("voice_id"), None
@@ -278,10 +293,9 @@ async def delete_voice(voice_id: str) -> bool:
     if not _key() or not voice_id:
         return False
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            res = await client.delete(
-                f"{_API_ROOT}/voices/{voice_id}", headers={"xi-api-key": _key()}
-            )
+        res = await _http().delete(
+            f"{_API_ROOT}/voices/{voice_id}", headers={"xi-api-key": _key()}
+        )
         return res.status_code in (200, 204)
     except Exception as exc:
         log.warning("voice delete failed: %s", _redact(str(exc)))

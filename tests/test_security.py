@@ -231,7 +231,7 @@ def test_contact_form_bounds_its_input(client):
         "/api/contact",
         json={"name": "x", "email": "a@b.c", "message": "y" * 20000},
     )
-    assert r.status_code == 413
+    assert r.status_code == 422
 
 
 def test_profile_update_ignores_unknown_fields(client):

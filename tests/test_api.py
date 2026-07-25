@@ -24,9 +24,29 @@ from app.models import Tier
 
 @pytest.fixture(scope="module")
 def client():
-    """A client running the app's real lifespan, so DB init and seeding actually run."""
+    """A signed-in client running the app's real production lifespan."""
+    from app import seed
+
+    seed.seed()
     with TestClient(app) as c:
+        response = c.post(
+            "/api/auth/login", json={"username": "sam", "password": "threshold"}
+        )
+        assert response.status_code == 200
         yield c
+
+
+def test_private_pages_stay_signed_out_after_logout(client):
+    """Logout clears the cookie and every private page enforces the boundary."""
+    assert client.post("/api/auth/logout").status_code == 200
+    for path in ("/app", "/caregiver", "/onboarding", "/ladder"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+    assert client.get("/api/state").status_code == 401
+    assert client.post(
+        "/api/auth/login", json={"username": "sam", "password": "threshold"}
+    ).status_code == 200
 
 
 def test_healthz(client):
@@ -44,7 +64,17 @@ def test_state_shape(client):
 
 def test_empty_utterance_rejected(client):
     """Guards the voice path: a dropped transcription must not become a triage input."""
-    assert client.post("/api/utterance", json={"text": "  "}).status_code == 400
+    assert client.post("/api/utterance", json={"text": "  "}).status_code == 422
+
+
+def test_sensor_route_uses_the_typed_boolean_contract(client):
+    """The live route must reject the string that raw-dict truthiness inverted."""
+    assert client.post(
+        "/api/sensor", json={"silent_seconds": 0, "still": "false"}
+    ).status_code == 422
+    assert client.post(
+        "/api/sensor", json={"silent_seconds": 0, "still": False}
+    ).status_code == 200
 
 
 def test_craving_escalates_and_logs(client):
