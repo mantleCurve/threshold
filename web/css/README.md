@@ -16,8 +16,21 @@ stylesheets, loaded in this order on every page:
 **JS sets exactly one attribute. Nothing else.**
 
 ```js
-document.documentElement.dataset.tier = String(tier); // "0".."5"
+document.body.dataset.tier = String(tier); // "0".."5"
 ```
+
+The selectors are plain `[data-tier="N"]`, so the attribute works on **either**
+`<html>` or `<body>`. Both are used, deliberately, and they layer:
+
+- `<html data-tier="N">` is the **static floor**, written into the markup. It is
+  what renders before any script runs, and what renders if scripting is off
+  entirely. `bystander.html` is pinned to `4` this way and needs no JS at all.
+- `<body data-tier="N">` is the **runtime override** set by `app.js`. Because
+  `<body>` is the inner element, custom properties inherited from it win over
+  `<html>` for everything inside the page — so JS always takes precedence.
+
+If you set the tier on `<html>` at runtime while `<body>` still carries a stale
+value, `<body>` wins and nothing appears to change. Set it on `<body>`.
 
 That attribute rebinds four variables and the entire interface follows:
 

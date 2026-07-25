@@ -54,17 +54,37 @@
       and it is the safe thing to do. Stay with them.
     </p>
 
-    <!-- The statute is populated from the static reviewed dataset via
-         GET /api/legal/{state_code}. If that call fails, the sentence above
-         still stands on its own — it is in the markup, not injected. -->
-    <p class="samaritan__statute" id="statute" aria-live="polite">
+  </section>
+
+  <!-- ------------------------------------------------------------------ 2 -
+       CALL 911. An <a href="tel:"> rather than a <button>: if every script on
+       this page failed to load, the call still works. That is the only reason
+       it is a link, and it is a good one.
+       -------------------------------------------------------------------- -->
+  <a class="call-911" id="call" href="tel:911">
+    Call 911
+    <small>Tap here — then put it on speaker and keep reading</small>
+  </a>
+
+  <!-- The statute citation and the state picker sit BELOW the call button, not
+       above it. Both were originally inside the reassurance block, where they
+       pushed the 911 button off the first screen on a 390px phone — the one
+       unacceptable outcome on this page. The reassurance sentence is what has to
+       be read before calling; the citation is what someone reads afterwards, or
+       while waiting. Ordering here is triage, not tidiness.
+
+       NOT marked [data-chrome]: this page is pinned to tier 4 and chrome is
+       stripped at tier 3+. The picker must survive that, because the protection
+       is state-specific and getting it wrong is the worst failure in this product.
+
+       Populated from the static reviewed dataset via GET /api/legal/{state_code}.
+       If that call fails, the reassurance above still stands on its own — it is
+       in the markup, not injected. -->
+  <section class="stack" aria-labelledby="statute-h">
+    <h2 class="visually-hidden" id="statute-h">Your state's Good Samaritan law</h2>
+    <p class="samaritan__statute" id="statute" aria-live="polite" style="border-top: 0; margin-top: 0;">
       Loading your state's statute…
     </p>
-
-    <!-- NOT marked [data-chrome]: this page is pinned to tier 4, and chrome is
-         stripped at tier 3+. The state picker must survive that, because the
-         legal protection is state-specific and getting it wrong is the worst
-         failure this product can have. -->
     <div class="field" style="max-width: 16rem;">
       <label for="state">Not your state?</label>
       <select class="input" id="state" name="state">
@@ -77,16 +97,6 @@
       </select>
     </div>
   </section>
-
-  <!-- ------------------------------------------------------------------ 2 -
-       CALL 911. An <a href="tel:"> rather than a <button>: if every script on
-       this page failed to load, the call still works. That is the only reason
-       it is a link, and it is a good one.
-       -------------------------------------------------------------------- -->
-  <a class="call-911" id="call" href="tel:911">
-    Call 911
-    <small>Tap here — then put it on speaker and keep reading</small>
-  </a>
 
   <!-- What to say, so they don't have to compose a sentence under panic.
        Static, deliberately: this is the one moment where a slow model call
@@ -188,24 +198,45 @@
             <!-- No width/height attributes: the viewBox plus the CSS
                  `svg { display:block; max-width:100% }` in base.css sizes it.
                  height="auto" is invalid on an SVG element and errors. -->
-            <svg viewBox="0 0 320 130" role="img" aria-labelledby="rp-title" style="width:100%; height:auto;">
-              <title id="rp-title">A person lying on their side, top knee bent forward, head tilted back and resting on their arm.</title>
-              <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <!-- ground line -->
-                <path d="M10 112 H310" stroke-opacity="0.3"/>
-                <!-- head, tilted back -->
-                <circle cx="66" cy="70" r="17"/>
-                <!-- torso -->
-                <path d="M83 76 C120 62 165 62 205 74"/>
-                <path d="M84 92 C122 104 168 104 206 96"/>
-                <!-- lower arm, supporting the head -->
-                <path d="M92 88 L74 100 L58 92"/>
-                <!-- upper arm, forward -->
-                <path d="M110 70 L128 50 L152 56"/>
-                <!-- top leg, knee bent forward to stop them rolling -->
-                <path d="M205 84 L236 66 L262 88 L258 110"/>
-                <!-- bottom leg, straight -->
-                <path d="M206 96 L252 104 L292 106"/>
+            <svg viewBox="0 0 320 150" role="img" aria-labelledby="rp-title" style="width:100%; height:auto;">
+              <title id="rp-title">A person lying on their side. The head is tilted back and resting on the lower arm, the upper arm is bent in front of the chest, and the top knee is drawn forward across the body to stop them rolling onto their front.</title>
+
+              <!-- Ground, drawn first and dimmed so the figure sits ON something.
+                   Without it the pose reads as floating and is much harder to
+                   recognise at a glance. -->
+              <path d="M8 126 H312" stroke="currentColor" stroke-width="2" stroke-opacity="0.28" stroke-linecap="round"/>
+
+              <!-- Torso: a stroked outline with a faint fill, not a solid mass.
+                   A filled-only shape read as a dark brown blob against the near-
+                   black canvas; the outline is what makes it a body. -->
+              <path d="M98 78 C132 64 178 64 212 78 C222 82 224 100 212 106 C176 118 132 118 98 104 Z"
+                    fill="currentColor" fill-opacity="0.1"
+                    stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+
+              <g fill="none" stroke="currentColor" stroke-width="5"
+                 stroke-linecap="round" stroke-linejoin="round">
+                <!-- Head, tilted back — the single most important detail on this
+                     page, because a tilted head is what keeps the airway open. -->
+                <circle cx="66" cy="76" r="20" fill="var(--canvas-deep)"/>
+                <!-- Neck, angled up to show the tilt rather than a straight line -->
+                <path d="M84 68 L98 76"/>
+
+                <!-- Lower arm, extended under the head as a pillow -->
+                <path d="M100 96 L72 108 L44 100" stroke-opacity="0.85"/>
+                <!-- Upper arm, bent in front of the chest and bracing the ground -->
+                <path d="M128 74 L150 50 L182 62"/>
+
+                <!-- Bottom leg first, so the top leg overlaps it in the drawing
+                     order exactly as it does in reality. Straight along the
+                     ground, dimmed to sit behind. -->
+                <path d="M212 104 L262 116 L302 118" stroke-opacity="0.8"/>
+
+                <!-- Top leg: hip, knee raised forward, foot planted back DOWN on
+                     the ground. Three points only — an earlier four-point path
+                     closed into a pentagon and stopped reading as a leg.
+                     This is the whole point of the recovery position (it is what
+                     stops them rolling face-down), so it is the boldest line. -->
+                <path d="M210 88 L252 56 L262 122" stroke-width="6"/>
               </g>
             </svg>
           </div>

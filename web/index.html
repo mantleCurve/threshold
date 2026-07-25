@@ -4,8 +4,11 @@
   Surface: the person in recovery. Sometimes at 3am, sometimes intoxicated,
   sometimes mid-overdose.
 
-  THE ONE STRUCTURAL IDEA: <html data-tier="0..5"> is the only state JS sets.
-  tiers.css does the rest — accent hue, spacing density, type scale, and which
+  THE ONE STRUCTURAL IDEA: data-tier="0..5" is the only state JS sets.
+  It is written on <html> here as the static floor (what renders before any
+  script runs, or if scripting is off); app.js sets it on <body> at runtime,
+  which wins because <body> is the inner element. tiers.css does the rest —
+  accent hue, spacing density, type scale, and which
   regions exist at all. Elements marked [data-chrome] are furniture and are
   REMOVED from the DOM's accessibility tree at tier 3+. At tier 4 the .takeover
   layer covers everything and the page behind it is set `inert` by JS, so there

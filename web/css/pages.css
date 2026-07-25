@@ -269,7 +269,7 @@
 }
 .tier-control button {
   flex: 1 1 3rem;
-  min-height: 2.5rem;
+  min-height: 2.75rem;  /* 44px — the tap-target floor, same as .btn */
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -386,7 +386,25 @@
    ever opened during an emergency — there is no calm state to design for.
    ========================================================================== */
 
-.bystander { --scale: 1.15; max-width: 44rem; margin-inline: auto; }
+/* The page is pinned to [data-tier="4"] so its type is emergency-sized, but it
+   deliberately overrides tier 4's --density: 1.7. That density exists to give a
+   SINGLE button the whole screen; here it would push the 911 button below the
+   fold on a phone, which is the one unacceptable outcome on this page.
+   Type stays large; only the whitespace comes back down. */
+.bystander {
+  --density: 1.05;
+  --scale: 1.12;
+  max-width: 46rem;
+  margin-inline: auto;
+  gap: var(--sp-5);
+}
+
+/* Reassurance must be readable AND must not consume the first screen on its
+   own. Capped well below --step-4 so the 911 button stays above the fold at
+   390px — the sentence is the intervention, but only if the button follows it. */
+.bystander .samaritan { padding: var(--sp-5); }
+.bystander .samaritan__headline { font-size: clamp(1.5rem, 5.4vw, 2.125rem); }
+.bystander .samaritan .prose { font-size: var(--step-0); }
 
 /* Good Samaritan reassurance comes FIRST, above the medical instructions.
    This is a deliberate clinical decision, not a layout preference: the
