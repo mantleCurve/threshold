@@ -134,9 +134,12 @@ function showClonedLabel(on, name = '') {
 /* The currently playing cloud audio, so a new utterance can cut off an old one
    rather than talking over it — and so the label is cleared when it does. */
 let currentAudio = null;
+let reusableAudio = null;
+let audioPrimed = false;
+let audioPriming = false;
 let fallbackEl = null;
 
-function showFallbackNotice() {
+function showFallbackNotice(message = 'ElevenLabs was unavailable — using this device’s voice.') {
   if (!fallbackEl) {
     fallbackEl = document.createElement('div');
     fallbackEl.className = 'voice-fallback-label';
@@ -144,9 +147,66 @@ function showFallbackNotice() {
     fallbackEl.setAttribute('aria-live', 'polite');
     document.body.appendChild(fallbackEl);
   }
-  fallbackEl.textContent = 'ElevenLabs was unavailable — using this device’s voice.';
+  fallbackEl.textContent = message;
   fallbackEl.hidden = false;
   window.setTimeout(() => { if (fallbackEl) fallbackEl.hidden = true; }, 6000);
+}
+
+function silentWavUrl() {
+  const samples = 80;
+  const buffer = new ArrayBuffer(44 + samples);
+  const view = new DataView(buffer);
+  const write = (offset, value) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+  write(0, 'RIFF');
+  view.setUint32(4, 36 + samples, true);
+  write(8, 'WAVE');
+  write(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  write(36, 'data');
+  view.setUint32(40, samples, true);
+  for (let i = 44; i < 44 + samples; i += 1) view.setUint8(i, 128);
+  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+}
+
+/**
+ * Unlock one reusable media element while the browser still has a user gesture.
+ *
+ * Cloud audio arrives after a network round trip, by which time Safari/Chrome
+ * may have discarded the click's playback permission. Playing 10ms of muted
+ * silence synchronously blesses this element; the returned ElevenLabs MP3 is
+ * then loaded into the same element instead of a new autoplay-blocked one.
+ */
+export function primeAudioPlayback() {
+  if (audioPrimed || audioPriming || typeof Audio === 'undefined') return;
+  audioPriming = true;
+  reusableAudio ||= new Audio();
+  reusableAudio.setAttribute('playsinline', '');
+  const url = silentWavUrl();
+  reusableAudio.muted = true;
+  reusableAudio.src = url;
+  const attempt = reusableAudio.play();
+  Promise.resolve(attempt)
+    .then(() => {
+      reusableAudio.pause();
+      reusableAudio.currentTime = 0;
+      reusableAudio.muted = false;
+      audioPrimed = true;
+    })
+    .catch(() => {})
+    .finally(() => {
+      URL.revokeObjectURL(url);
+      audioPriming = false;
+    });
 }
 
 /**
@@ -190,7 +250,12 @@ export function cancelSpeech() {
  */
 async function playCloned(blob, { cloned, name }) {
   const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
+  const audio = reusableAudio || new Audio();
+  reusableAudio = audio;
+  audio.pause();
+  audio.src = url;
+  audio.muted = false;
+  audio.currentTime = 0;
   currentAudio = audio;
   if (cloned) showClonedLabel(true, name);
 
@@ -205,8 +270,8 @@ async function playCloned(blob, { cloned, name }) {
       showClonedLabel(false);
     }
   };
-  audio.addEventListener('ended', done);
-  audio.addEventListener('error', done);
+  audio.onended = done;
+  audio.onerror = done;
 
   try {
     await audio.play();
@@ -266,7 +331,10 @@ export async function speakWithChosenVoice(text, { loud = false } = {}) {
     // Trust the RESPONSE, not the request, for whether this needs labelling.
     const cloned = res.headers.get('X-Voice-Cloned') === 'true';
     if (await playCloned(blob, { cloned, name: choice.name })) return 'cloud';
-    throw new Error('playback blocked');
+    showFallbackNotice(
+      'Your browser blocked cloud audio — using this device’s voice. Tap the voice control once to enable it.'
+    );
+    return speakInBrowser(text, { loud }) ? 'browser' : 'none';
   } catch {
     showFallbackNotice();
     return speakInBrowser(text, { loud }) ? 'browser' : 'none';

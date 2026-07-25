@@ -25,6 +25,11 @@
 
 'use strict';
 
+import {
+  primeAudioPlayback,
+  speakWithChosenVoice,
+} from '/static/js/voice.js?v=20260725-4';
+
 /* -------------------------------------------------------------------------- */
 /* API helpers                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -503,8 +508,7 @@ function preferredVoice() {
  */
 function speak(text, { loud = false } = {}) {
   if (!text) return;
-  import('/static/js/voice.js')
-    .then((voice) => voice.speakWithChosenVoice(text, { loud }))
+  Promise.resolve(speakWithChosenVoice(text, { loud }))
     .catch(() => speakInBrowser(text, { loud }));
 }
 
@@ -620,6 +624,7 @@ function initVoice() {
 
   const start = () => {
     if (listening) return;
+    primeAudioPlayback();
     setRecording(true);
     if (label) label.textContent = 'Listening…';
     try { recognition.start(); } catch { /* already started */ }
@@ -693,6 +698,7 @@ function initTypedInput() {
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    primeAudioPlayback();
     const input = document.getElementById('utterance');
     const text = (input?.value || '').trim();
     if (!text) return;
@@ -735,7 +741,7 @@ async function sendUtterance(text) {
       addTurn('threshold', reply.text, reply.live);
       speak(reply.text);
     } else if (reply?.error) {
-      addSystemNote(reply.error);
+      addSystemNote(reply.error, true);
     }
 
     // Tier 2 is where the Memory Vault earns its place.
@@ -744,7 +750,7 @@ async function sendUtterance(text) {
     const fallback =
       'Threshold could not reach the server. If you may be in immediate danger, ' +
       'call 911 now. You can also call or text 988 for crisis support.';
-    addSystemNote(fallback);
+    addSystemNote(fallback, true);
     // Use the device directly on a network failure. Routing this through the
     // cloud voice path would retry the service that just failed before falling
     // back, adding silence at the worst possible moment.
@@ -787,12 +793,14 @@ function addTurn(who, text, live) {
 }
 
 /** A short machine-voice note explaining what the system just did and why. */
-function addSystemNote(text) {
+function addSystemNote(text, isError = false) {
   if (!text) return;
   const el = document.getElementById('system-notice');
   if (el) {
     el.textContent = text;
     el.hidden = false;
+    el.classList.toggle('notice--error', isError);
+    el.classList.toggle('notice--ok', !isError);
   }
 }
 
@@ -867,7 +875,7 @@ async function loadTolerance() {
     // No message and no card, rather than an empty accented box implying
     // something was said. If there is an error worth showing, the system
     // notice carries it.
-    if (gen?.error) addSystemNote(gen.error);
+    if (gen?.error) addSystemNote(gen.error, true);
     return gen;
   }
 
@@ -1107,7 +1115,7 @@ async function boot() {
   try {
     state = await api('/api/state');
   } catch {
-    addSystemNote('Offline. Emergency numbers and the overdose guide still work.');
+    addSystemNote('Offline. Emergency numbers and the overdose guide still work.', true);
     return;
   }
 
@@ -1128,8 +1136,7 @@ async function boot() {
   // Tolerance Guard fires unprompted on a day when nothing is wrong. This is the
   // product's argument in a single interaction, so it runs on load rather than
   // waiting to be asked (PRD §5.1).
-  const gen = await loadTolerance();
-  if (gen?.window_active && gen.text) speak(gen.text);
+  await loadTolerance();
 }
 
 function renderStats(profile, events) {
