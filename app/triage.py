@@ -103,6 +103,7 @@ __all__ = [
     "actions_for_tier",
     "evaluate",
     "match_signals",
+    "notify_caregiver_for",
     "rescind",
     "tolerance_window_active",
 ]
@@ -265,10 +266,26 @@ SIGNALS: list[Signal] = [
         # The negative lookahead is the "helper/helpful/helped" guard. \b alone
         # would not help here (it matches inside "helper" at the p/e boundary
         # only, not the word end) — hence the explicit suffix exclusion.
-        # "help" bare is deliberately Tier 4 despite its ambiguity: PRD §4.1
-        # treats an unqualified cry for help as an emergency until rescinded,
-        # because the cost of asking "did you mean it?" is a delayed 911 call.
-        pattern=r"\bhelp\b(?!\s*(ed|ful|er|ing|s)\b)",
+        #
+        # PRD §4.1 treats an unqualified cry for help as an emergency, and the
+        # cost of asking "did you mean it?" is a delayed 911 call. But a bare
+        # \bhelp\b was the lowest-precision row in the entire table: "help me
+        # find my keys" and "can you help me with something" both dispatched an
+        # ambulance. That is not a safe-direction failure — routine false alarms
+        # are precisely what teaches someone to stop talking to the app, and a
+        # user who goes quiet is the risk this product exists to prevent
+        # (PRD §12, the concealment risk).
+        #
+        # So the second lookahead excludes the transitive, mundane-request sense
+        # of the word: "help me <verb> ..." / "help with ...". An urgent cry
+        # ("help", "help me", "I need help", "somebody help") has no object and
+        # still matches at Tier 4. This narrows precision, not recall.
+        pattern=(
+            r"\bhelp\b"
+            r"(?!\s*(ed|ful|er|ing|s)\b)"
+            r"(?!\s+(me\s+)?(find|with|understand|figure|fix|carry|move|"
+            r"pick|choose|decide|write|think|remember|get\s+\w+\s+from)\b)"
+        ),
         example="help",
     ),
     Signal(
@@ -790,7 +807,7 @@ def actions_for_tier(tier: Tier, profile: UserProfile | None = None) -> list[Act
 # --------------------------------------------------------------------------
 # Caregiver notification
 # --------------------------------------------------------------------------
-def _notify_caregiver(tier: Tier, profile: UserProfile | None) -> bool:
+def notify_caregiver_for(tier: Tier, profile: UserProfile | None = None) -> bool:
     """Whether this tier reaches a caregiver, per PRD §4.2.
 
     Args:
@@ -820,6 +837,12 @@ def _notify_caregiver(tier: Tier, profile: UserProfile | None) -> bool:
         ladder = profile.ladder if profile is not None else DEFAULT_LADDER
         return ladder.tier_3_visible_to_caregiver
     return False
+
+
+# Back-compat alias. `app/main.py` reached for the private name when building
+# the manual-override result; kept so that import cannot break, but the public
+# name above is the one to use. Deliberately not deleted without coordinating.
+_notify_caregiver = notify_caregiver_for
 
 
 # --------------------------------------------------------------------------
@@ -987,6 +1010,10 @@ def evaluate(
             )
             return _result(previous, previous, reason, profile, calm.signal.label)
         if previous > standing:
+            # One step at a time, and never below the standing floor. Stepping
+            # 3 -> 0 on a single "I'm fine" would discard the elevated check-in
+            # cadence at precisely the hour it matters most; the user has to
+            # walk back down the same ladder they walked up.
             target = Tier(max(standing, previous - 1))
             reason = (
                 f"Tier {previous.value} -> Tier {target.value}: matched "
@@ -1002,6 +1029,9 @@ def evaluate(
         return _result(previous, previous, reason, profile, calm.signal.label)
 
     # ---- 6: hold ---------------------------------------------------------
+    # Three distinct hold reasons rather than one generic string. The reason is
+    # rendered in the UI, and "no new signal" would be actively misleading to a
+    # user looking at their ladder wondering why they are still at Tier 3.
     if escalating is not None:
         reason = (
             f"Holding at Tier {previous.value}: matched \"{escalating.text}\" "
@@ -1022,10 +1052,28 @@ def rescind(
 ) -> TriageResult:
     """One-tap false alarm. The only way down from Tier 4 or 5.
 
-    Explicit user action, so it works from any tier — but it lands on Tier 1,
-    not Tier 0. Someone who just stood down an emergency is not baseline, and
-    dropping straight to baseline would discard the check-in cadence at exactly
-    the wrong moment.
+    Args:
+        current_tier: the tier being stood down from.
+        profile: forwarded for the resulting actions and caregiver visibility.
+
+    Returns:
+        A TriageResult at Tier 1 (or the current tier if already at or below
+        it), with a reason that records the stand-down as a user action.
+
+    Why this exists as a separate entry point rather than an `evaluate` flag:
+    `evaluate` processes evidence, and a rescind is not evidence — it is an
+    authority. Keeping it separate means no combination of utterance, silence,
+    or sensor input can ever synthesise one.
+
+    Why Tier 1 and not Tier 0: someone who just stood down an emergency is not
+    baseline. Dropping to 0 would cancel the elevated check-in cadence at
+    exactly the wrong moment. PRD P3 — the user may rescind the alarm, but the
+    ladder still remembers the hour they are having.
+
+    Deliberately NOT rate-limited or challenged ("are you sure?"). A user who
+    must fight their phone to cancel a false alarm learns to leave the phone in
+    another room, and the phone in another room is the whole failure mode this
+    product exists to prevent.
     """
     previous = Tier(current_tier)
     if previous <= Tier.ELEVATED:

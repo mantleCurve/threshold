@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — Threshold</title>
+<meta name="description" content="Contact the Threshold team. Not monitored in an emergency — call 911.">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/public.css">
+</head>
+<body class="public" data-tier="0">
+<a href="#main" class="skip">Skip to content</a>
+
+<header class="masthead">
+  <a href="/home" style="text-decoration:none;color:var(--ink);font-weight:600">Threshold</a>
+  <nav aria-label="Primary">
+    <a href="/home">Home</a>
+    <a href="/emergency">Emergency</a>
+    <a href="/bystander">Overdose guide</a>
+    <a href="/contact" aria-current="page">Contact</a>
+    <a href="/login">Sign in</a>
+  </nav>
+</header>
+
+<main class="public-main" id="main">
+
+  <div class="doc">
+    <h1 class="display" style="font-size:var(--step-5);margin-bottom:var(--sp-4)">Contact</h1>
+
+    <!-- The emergency redirect comes FIRST. A contact form is the wrong tool for
+         a crisis and we say so before someone starts typing into it. -->
+    <div class="emergency-band" style="margin-bottom:var(--sp-6)">
+      <p class="label">This form is not monitored in an emergency</p>
+      <p class="prose" style="margin-top:var(--sp-2);color:var(--ink)">
+        Nobody reads this inbox at 3am. If someone is in danger right now, call
+        <a href="tel:911" style="color:var(--ink);font-weight:600">911</a>, or
+        <a href="tel:988" style="color:var(--ink);font-weight:600">988</a> for
+        crisis support.
+      </p>
+      <p style="margin-top:var(--sp-3)"><a href="/emergency" class="btn">Emergency numbers</a></p>
+    </div>
+
+    <p class="prose">
+      Questions about the product, the research behind it, partnership with a
+      treatment provider or harm reduction program, or a correction to something
+      we have published — this is the right place.
+    </p>
+
+    <form method="post" action="/api/contact" style="margin-top:var(--sp-6)">
+      <div class="field">
+        <label for="c-name">Your name</label>
+        <input id="c-name" name="name" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="c-email">Email</label>
+        <input id="c-email" name="email" type="email" autocomplete="email" required>
+        <p class="field-hint">Used only to reply to you. Never added to a mailing list.</p>
+      </div>
+      <div class="field">
+        <label for="c-topic">Topic</label>
+        <select id="c-topic" name="topic">
+          <option value="general">General question</option>
+          <option value="correction">A correction — something here is wrong</option>
+          <option value="clinical">Clinical or research collaboration</option>
+          <option value="provider">Treatment provider or harm reduction program</option>
+          <option value="privacy">Privacy or data request</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="c-msg">Message</label>
+        <textarea id="c-msg" name="message" required></textarea>
+        <p class="field-hint">
+          Please do not include clinical details about a specific person. This
+          inbox is not a protected health record.
+        </p>
+      </div>
+      <button type="submit" class="btn btn-primary">Send message</button>
+      <p id="c-status" role="status" aria-live="polite" style="margin-top:var(--sp-3);color:var(--ink-2)"></p>
+    </form>
+
+    <h2>Corrections</h2>
+    <p class="prose">
+      If you are a clinician, lawyer, or harm reduction worker and something we
+      publish is wrong — particularly in our state legal summaries — tell us and
+      we will fix it. Accuracy here is a safety matter, not a content matter.
+    </p>
+  </div>
+
+  <script>
+  // Progressive enhancement: the form posts normally without JS. With JS we
+  // intercept it so the user gets an inline confirmation and keeps their place.
+  document.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const status = document.getElementById('c-status');
+    status.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/contact', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.fromEntries(new FormData(e.target)))
+      });
+      const j = await r.json();
+      status.textContent = j.ok
+        ? 'Thank you — your message was received.'
+        : ('Could not send: ' + (j.detail || 'unknown error'));
+    } catch (err) {
+      status.textContent = 'Could not send. Please try again.';
+    }
+  });
+  </script>
+
+</main>
+
+<footer class="public-footer">
+  <div class="footer-inner">
+    <nav aria-label="Product">
+      <span class="label">Product</span>
+      <a href="/home">Home</a>
+      <a href="/login">Sign in</a>
+      <a href="/bystander">Overdose guide</a>
+    </nav>
+    <nav aria-label="Legal">
+      <span class="label">Legal</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/data-deletion">Delete my data</a>
+    </nav>
+    <nav aria-label="Contact">
+      <span class="label">Contact</span>
+      <a href="/contact">Contact us</a>
+      <a href="/emergency">Emergency numbers</a>
+    </nav>
+  </div>
+  <p class="footer-crisis">
+    In immediate danger? <a href="tel:911">Call 911</a> &nbsp;·&nbsp;
+    Crisis support: <a href="tel:988">988</a> &nbsp;·&nbsp;
+    <a href="/emergency">All emergency numbers</a>
+  </p>
+</footer>
+</body>
+</html>

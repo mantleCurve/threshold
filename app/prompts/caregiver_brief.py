@@ -102,8 +102,8 @@ Write the four sections now.
 def build(
     profile: UserProfile,
     tier: Tier,
-    reason: str,
     events: list[Event],
+    reason: str = "",
     max_events: int = 12,
 ) -> tuple[str, str]:
     """Build the caregiver situation-brief prompt.
@@ -112,9 +112,11 @@ def build(
         profile: The person the brief is about.
         tier: Current tier, already decided by `app/triage.py`. Passed in as a *fact*;
             the prompt forbids the model from reasoning about or naming it.
+        events: Append-only event log. Only the tail is sent — see `max_events`.
         reason: The auditable, human-written reason string from `TriageResult`. Never
-            model-written (CONTRACT.md), so it is safe to quote into the prompt.
-        events: Append-only event log. Only the tail is sent — see below.
+            model-written (CONTRACT.md), so it is safe to quote into the prompt. When
+            omitted it is recovered from the most recent event, which carries the same
+            reason string — so the caller is not forced to thread it through.
         max_events: How many trailing events to include. Bounded on purpose: a
             caregiver at 3am needs tonight, and an unbounded log would both blow the
             latency budget and let old, resolved incidents contaminate the summary.
@@ -123,6 +125,11 @@ def build(
         (system, user) prompt strings.
     """
     tail = events[-max_events:]
+
+    # Recover the reason from the log rather than inventing one. Everything the model
+    # is told about *why* must trace to a deterministic, auditable source.
+    if not reason:
+        reason = tail[-1].reason if tail else "(no reason recorded)"
 
     # Render events as flat lines rather than JSON: the model copies structure it is
     # shown, and JSON-shaped input reliably produces JSON-shaped prose output here.

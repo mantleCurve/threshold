@@ -68,7 +68,13 @@ def test_used_to_is_not_a_disclosure(client):
     """
     client.post("/api/tier", json={"tier": 0})
     res = client.post("/api/utterance", json={"text": "I used to drink a lot"}).json()
-    assert res["triage"]["tier"] == int(Tier.BASELINE)
+
+    # Asserts "no escalation", not "Tier 0". The seeded demo user is 11 days past a
+    # hospital discharge, so the tolerance window legitimately holds them at Elevated
+    # (PRD §5.1) — that standing floor is a feature, and pinning this test to Tier 0
+    # would make correct Tolerance Guard behaviour look like a regression.
+    assert res["triage"]["tier"] <= int(Tier.ELEVATED)
+    assert res["triage"]["matched_signal"] is None, "autobiography is not a disclosure"
 
 
 def test_emergency_always_notifies(client):

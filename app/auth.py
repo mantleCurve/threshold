@@ -59,7 +59,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import Cookie, HTTPException, Response, status
+from fastapi import Cookie, HTTPException, Request, Response, status
 
 from app import store
 
@@ -445,6 +445,26 @@ def current_user(
             detail="Not signed in.",
         )
     return user
+
+
+def user_from_request(request: Request) -> store.UserRecord | None:
+    """Resolve the caller from a raw Request, outside FastAPI's dependency system.
+
+    `current_user` and `optional_user` are dependencies and only work where
+    FastAPI can inject them. Some routes need to know who is calling from
+    inside the handler body — for example a page route that renders differently
+    when signed in, or the account-deletion endpoint, which must read the user
+    before it can act. This gives them the same resolution logic rather than
+    letting each one re-parse the cookie its own way.
+
+    Args:
+        request: The incoming request.
+
+    Returns:
+        The `UserRecord`, or None if there is no valid session. Never raises,
+        so a caller can treat "signed out" as an ordinary branch.
+    """
+    return optional_user(request.cookies.get(SESSION_COOKIE))
 
 
 def require_role(user: store.UserRecord, *roles: str) -> store.UserRecord:

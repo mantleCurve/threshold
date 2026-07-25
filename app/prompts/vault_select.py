@@ -72,17 +72,25 @@ Return the JSON object now.
 """
 
 
-def build(profile: UserProfile, clips: list[VaultClip], context: str = "") -> tuple[str, str]:
+def build(
+    clips: list[VaultClip],
+    context: str = "",
+    profile: UserProfile | None = None,
+) -> tuple[str, str]:
     """Build the vault-selection prompt.
 
     Args:
-        profile: The person who will hear the clip. Only the first name is used;
-            address and entry details are deliberately withheld from this task.
         clips: The clips actually available to play. Must be non-empty — the caller is
             responsible for the "no clips recorded" case, which is a UI state, not a
             generation.
-        context: Short description of the current moment, supplied by the caller from
-            deterministic state. Never a tier name (see rule 4 in the system prompt).
+        context: Short description of the current moment (see below).
+        profile: The person who will hear the clip. Optional, because clip selection is
+            driven by the transcripts and the moment, not by who is listening — the
+            vault route serves whoever is at the device. When present, only the first
+            name is used; address and entry details are deliberately withheld here.
+    Note:
+        `context` is supplied by the caller from deterministic state and must never be
+        a tier name (see rule 4 in the system prompt).
 
     Returns:
         (system, user) prompt strings.
@@ -106,7 +114,7 @@ def build(profile: UserProfile, clips: list[VaultClip], context: str = "") -> tu
     return (
         SYSTEM,
         USER.format(
-            name=profile.name.split(" ")[0] if profile.name else "unknown",
+            name=(profile.name.split(" ")[0] if profile and profile.name else "unknown"),
             context=context.strip() or "A hard moment. No further detail available.",
             clips=rendered,
         ),

@@ -24,7 +24,7 @@ What this module deliberately does NOT do:
 
 from __future__ import annotations
 
-from app.models import UserProfile
+from app.models import Tier, UserProfile
 from app.prompts import SAFETY_RULES, STYLE_RULES, _profile_context
 
 SYSTEM = """\
@@ -83,7 +83,8 @@ _HISTORY_TURNS = 8
 def build(
     profile: UserProfile,
     text: str,
-    history: list[str] | None = None,
+    history: list[str] | Tier | int | None = None,
+    tier: Tier | int | None = None,
 ) -> tuple[str, str]:
     """Build the conversational check-in prompt.
 
@@ -93,6 +94,12 @@ def build(
         text: What the user just said (transcribed speech or typed input).
         history: Prior conversation lines, oldest first. Optional; only the trailing
             `_HISTORY_TURNS` are used.
+        tier: Accepted and then **deliberately discarded**. The API layer has the
+            current tier in hand at this call site and it is natural to pass it, so the
+            parameter exists to keep that call working — but the tier never reaches the
+            prompt. PRD P4 / CONTRACT.md: the model is kept entirely out of tier
+            decisions, and the system prompt above forbids it from referencing any risk
+            state. Swallowing it here means a caller cannot leak it by accident.
 
     Returns:
         (system, user) prompt strings.
@@ -102,6 +109,11 @@ def build(
         and a prompt builder that throws would take out the conversation entirely — an
         empty utterance simply produces a prompt the model can still answer.
     """
+    # A tier passed in the third positional slot is tolerated and dropped, for the same
+    # reason as the `tier` keyword above. Only a real list of prior lines is used.
+    if not isinstance(history, list):
+        history = None
+
     lines = history or []
     rendered = (
         "\n".join(f"- {line}" for line in lines[-_HISTORY_TURNS:])

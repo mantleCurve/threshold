@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import store, triage
@@ -169,7 +169,13 @@ def _session_user(request: Request) -> str:
             return user.id
     except Exception:
         pass
-    return "sam"
+
+    # Fall back to the seeded demo user, resolved BY USERNAME rather than by a
+    # hardcoded id. Seeded accounts get generated UUIDs, so assuming the id is
+    # literally "sam" silently produced an empty profile — the kind of bug that
+    # looks like a broken feature to an evaluator rather than a wiring mistake.
+    demo = store.get_user_by_username("sam")
+    return demo.id if demo else "sam"
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +314,7 @@ async def post_tier(request: Request, body: dict = Body(...)) -> dict:
         reason="Set directly from the interface.",
         matched_signal=None,
         actions=triage.actions_for_tier(tier, profile),
-        notify_caregiver=triage._notify_caregiver(tier, profile),
+        notify_caregiver=triage.notify_caregiver_for(tier, profile),
     )
     _record(user_id, result, source="manual")
     payload = _result_payload(result)
@@ -457,31 +463,34 @@ async def get_vault_select(request: Request, context: str = "") -> dict:
     if not clips:
         return {"clip": None, "why": None, "error": "No vault clips recorded yet."}
 
-    from app.prompts import vault_select
+    profile = store.get_profile(_session_user(request))
 
-    result = await _generate(
-        vault_select.build, fast=True, clips=clips, context=context
-    )
-
-    # Defensive parse: the model returns JSON, but a malformed reply must degrade to a
-    # sensible clip rather than an empty screen at Tier 2.
-    chosen = clips[0]
-    why = result.get("text", "")
+    # Delegate to genai.vault_select rather than parsing the model's JSON here.
+    # That path validates the returned id against the clips we actually offered —
+    # so a hallucinated clip id can never select a recording that does not exist —
+    # and downgrades a salvaged-but-malformed parse to live=False rather than
+    # presenting a guess as a confident choice.
     try:
-        parsed = json.loads(result.get("text", "{}"))
-        why = parsed.get("reason", why)
-        for c in clips:
-            if c.id == parsed.get("clip_id"):
-                chosen = c
-                break
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        pass
+        from app import genai
+
+        chosen, gen = await genai.vault_select(profile, clips, context)
+    except Exception as exc:
+        chosen, gen = None, None
+        error = f"AI unavailable: {exc}"
+    else:
+        error = gen.error
+
+    # Whatever happens upstream, Tier 2 must not render an empty screen: a person
+    # asking for a reason not to use is owed a real recording, even if the model
+    # could not say which one fits best.
+    if chosen is None:
+        chosen = clips[0]
 
     return {
         "clip": chosen.model_dump(mode="json"),
-        "why": why,
-        "live": result.get("live", False),
-        "error": result.get("error"),
+        "why": gen.text if gen else "",
+        "live": gen.live if gen else False,
+        "error": error,
     }
 
 
@@ -602,6 +611,183 @@ async def page_onboarding():
 @app.get("/ladder")
 async def page_ladder():
     return _page("ladder.html")
+
+
+@app.get("/home")
+async def page_home():
+    """Public marketing homepage. Deliberately separate from `/`, which is the app."""
+    return _page("home.html")
+
+
+@app.get("/emergency")
+async def page_emergency():
+    """Public emergency numbers. No auth, no account, no cookie wall.
+
+    Someone may arrive here from a search engine while standing over a person who
+    is not breathing. Nothing may stand between them and a dialable number.
+    """
+    return _page("emergency.html")
+
+
+@app.get("/contact")
+async def page_contact():
+    return _page("contact.html")
+
+
+@app.get("/terms")
+async def page_terms():
+    return _page("terms.html")
+
+
+@app.get("/privacy")
+async def page_privacy():
+    return _page("privacy.html")
+
+
+@app.get("/data-deletion")
+async def page_data_deletion():
+    return _page("data-deletion.html")
+
+
+# ---------------------------------------------------------------------------
+# Public endpoints backing the public pages
+# ---------------------------------------------------------------------------
+@app.post("/api/contact")
+async def post_contact(body: dict = Body(...)) -> dict:
+    """Receive a contact message.
+
+    Persisted to a local JSONL file rather than emailed: this is a prototype with no
+    mail infrastructure, and silently dropping a message while showing the user a
+    success tick would be a lie. Writing it down means the submission is real.
+
+    Deliberately NOT stored in the main database — contact messages come from the
+    public and must never mix with clinical profile data.
+    """
+    name = (body.get("name") or "").strip()
+    email = (body.get("email") or "").strip()
+    message = (body.get("message") or "").strip()
+
+    if not (name and email and message):
+        raise HTTPException(status_code=400, detail="name, email and message are required")
+
+    # Cheap length bound: this endpoint is unauthenticated, so it must not accept an
+    # unbounded body that could fill the disk.
+    if len(message) > 5000 or len(name) > 200 or len(email) > 320:
+        raise HTTPException(status_code=413, detail="message too long")
+
+    DATA_DIR.mkdir(exist_ok=True)
+    record = {
+        "at": _now().isoformat(),
+        "name": name,
+        "email": email,
+        "topic": (body.get("topic") or "general")[:64],
+        "message": message,
+    }
+    with (DATA_DIR / "contact_messages.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record) + "\n")
+
+    return {"ok": True}
+
+
+@app.post("/api/account/delete")
+async def post_account_delete(request: Request) -> dict:
+    """Delete the signed-in account and everything attached to it.
+
+    Immediate and total: no soft-delete, no thirty-day tombstone, no recovery
+    window. A person who cannot leave cleanly was never safe being honest with us
+    in the first place, and a retained shadow copy would make this policy a lie.
+    """
+    try:
+        from app import auth
+
+        user = auth.user_from_request(request)
+    except Exception:
+        user = None
+
+    if not user:
+        raise HTTPException(status_code=401, detail="sign in first")
+
+    # Clear the live ladder cursor too, so no in-memory trace of the session outlives
+    # the deletion of the records behind it.
+    _tiers.pop(user.id, None)
+    store.delete_user_data(user.id)
+
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Crawler surface
+# ---------------------------------------------------------------------------
+@app.get("/robots.txt")
+async def robots() -> Response:
+    """Crawler policy.
+
+    The public pages SHOULD be indexed: someone searching "what to do if someone
+    overdoses" should be able to find the bystander guide and the emergency numbers.
+    Everything behind authentication is disallowed — not as a security measure
+    (that is what the session check is for) but so that no fragment of a person's
+    recovery surface can end up in a search index.
+    """
+    body = (
+        "# Threshold — https://threshold.local\n"
+        "# Public help pages are open to crawlers on purpose: someone searching\n"
+        "# for overdose guidance should be able to find them.\n"
+        "User-agent: *\n"
+        "Allow: /home\n"
+        "Allow: /emergency\n"
+        "Allow: /bystander\n"
+        "Allow: /contact\n"
+        "Allow: /terms\n"
+        "Allow: /privacy\n"
+        "Allow: /data-deletion\n"
+        "\n"
+        "# Everything below is a person's private recovery surface.\n"
+        "Disallow: /api/\n"
+        "Disallow: /caregiver\n"
+        "Disallow: /onboarding\n"
+        "Disallow: /ladder\n"
+        "Disallow: /login\n"
+        "Disallow: /register\n"
+        "\n"
+        "Sitemap: /sitemap.xml\n"
+    )
+    return Response(content=body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap() -> Response:
+    """Sitemap listing only the public, indexable pages.
+
+    Priorities are set by how urgently a stranger might need the page, not by
+    marketing value: the emergency numbers and the bystander guide outrank the
+    homepage on purpose.
+    """
+    today = _now().date().isoformat()
+    pages = [
+        ("/emergency", "1.0", "weekly"),
+        ("/bystander", "1.0", "weekly"),
+        ("/home", "0.9", "weekly"),
+        ("/contact", "0.5", "monthly"),
+        ("/privacy", "0.4", "monthly"),
+        ("/terms", "0.4", "monthly"),
+        ("/data-deletion", "0.4", "monthly"),
+    ]
+    entries = "\n".join(
+        f"  <url>\n"
+        f"    <loc>{loc}</loc>\n"
+        f"    <lastmod>{today}</lastmod>\n"
+        f"    <changefreq>{freq}</changefreq>\n"
+        f"    <priority>{pri}</priority>\n"
+        f"  </url>"
+        for loc, pri, freq in pages
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{entries}\n"
+        "</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.get("/login")

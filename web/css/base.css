@@ -22,11 +22,16 @@
   --line-strong: #35424f;
 
   /* -- ink ---------------------------------------------------------------
-     All three pass 4.5:1 on --canvas and on --surface. --ink-3 is the floor;
-     nothing dimmer than this is ever used for text. */
-  --ink:    #e9eef4;   /* ~15.9:1 on canvas */
-  --ink-2:  #adbac8;   /* ~8.6:1  */
-  --ink-3:  #7d8fa1;   /* ~4.9:1  — minimum legible, labels only */
+     Verified against EVERY surface these are used on, not just --canvas.
+     --ink-3 is the floor; nothing dimmer than this is ever used for text, and
+     it was raised from #7d8fa1 specifically because that value measured 4.48:1
+     on --surface-3 — passing on the canvas but failing inside a nested panel.
+       on --canvas  16.58 / 9.79 / 6.53
+       on --surface 15.28 / 9.02 / 6.02
+       on --surface-3 12.77 / 7.54 / 5.03   <- the binding constraint */
+  --ink:    #e9eef4;
+  --ink-2:  #adbac8;
+  --ink-3:  #8698aa;   /* 5.03:1 at worst case — labels and metadata only */
 
   /* -- the accent ramp ---------------------------------------------------
      One accent, rotated through hue as the ladder climbs. This is the only

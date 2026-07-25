@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<!--
+  BYSTANDER MODE — /bystander
+  Surface: a terrified stranger at an overdose. NO ACCOUNT, EVER (PRD §3).
+  This page is deliberately outside the auth wall.
+
+  ORDERING IS A CLINICAL DECISION, NOT A LAYOUT PREFERENCE.
+  Good Samaritan reassurance comes FIRST — above the medical instructions —
+  because the dominant reason bystanders don't call 911 at an overdose is fear
+  of arrest. Removing that fear IS the intervention. Everything medical is
+  useless if they have already left the room.
+
+  Nothing on this page requires reading a paragraph: every step is a numbered
+  heading with one short sentence under it, at a type size that survives a
+  shaking hand and a dark room.
+
+  The legal text is STATIC and REVIEWED (data/legal/), never model-generated.
+  Hallucinated legal advice is the worst possible failure in this product.
+-->
+<html lang="en" data-tier="4">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Someone is overdosing — what to do now</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<!--
+  data-tier="4" is pinned in the markup. A bystander page is only ever opened
+  during an emergency, so there is no calm state to design for — it starts at
+  emergency scale and stays there. The takeover layer is NOT used here, because
+  this page is a sequence of actions rather than a single one.
+-->
+<body>
+<a class="skip-link" href="#call">Skip to call 911</a>
+
+<main class="pane bystander" id="main">
+
+  <!-- ------------------------------------------------------------------ 1 -
+       REASSURANCE FIRST. Nothing above this. No branding, no navigation, no
+       sign-in prompt — a bystander must not see anything that looks like a
+       barrier before they see this.
+       -------------------------------------------------------------------- -->
+  <section class="samaritan stack" aria-labelledby="sam-h">
+    <p class="label" id="sam-h">Read this first</p>
+    <p class="samaritan__headline">
+      You will not be arrested for calling 911 to save someone's life.
+    </p>
+    <p class="prose" style="font-family: var(--font-voice); font-size: var(--step-1); color: var(--ink);">
+      Your state's Good Samaritan law protects the person who calls and the person
+      who overdosed from drug-possession charges. Calling is the right thing to do
+      and it is the safe thing to do. Stay with them.
+    </p>
+
+    <!-- The statute is populated from the static reviewed dataset via
+         GET /api/legal/{state_code}. If that call fails, the sentence above
+         still stands on its own — it is in the markup, not injected. -->
+    <p class="samaritan__statute" id="statute" aria-live="polite">
+      Loading your state's statute…
+    </p>
+
+    <!-- NOT marked [data-chrome]: this page is pinned to tier 4, and chrome is
+         stripped at tier 3+. The state picker must survive that, because the
+         legal protection is state-specific and getting it wrong is the worst
+         failure this product can have. -->
+    <div class="field" style="max-width: 16rem;">
+      <label for="state">Not your state?</label>
+      <select class="input" id="state" name="state">
+        <option value="KY" selected>Kentucky</option>
+        <option value="OH">Ohio</option>
+        <option value="WV">West Virginia</option>
+        <option value="PA">Pennsylvania</option>
+        <option value="CA">California</option>
+        <option value="NY">New York</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ 2 -
+       CALL 911. An <a href="tel:"> rather than a <button>: if every script on
+       this page failed to load, the call still works. That is the only reason
+       it is a link, and it is a good one.
+       -------------------------------------------------------------------- -->
+  <a class="call-911" id="call" href="tel:911">
+    Call 911
+    <small>Tap here — then put it on speaker and keep reading</small>
+  </a>
+
+  <!-- What to say, so they don't have to compose a sentence under panic.
+       Static, deliberately: this is the one moment where a slow model call
+       would cost a life. -->
+  <section class="card" aria-labelledby="say-h">
+    <div class="card__head">
+      <h2 class="label" id="say-h">Say exactly this</h2>
+    </div>
+    <p class="lede" id="what-to-say">
+      "Someone is not breathing. I think it's an overdose. I need an ambulance."
+      Then give the address. Do not hang up.
+    </p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ 3 -
+       THE WALKTHROUGH. Numbered, one action per step, biggest type in the
+       body of the product. An <ol> because the order is life-critical and a
+       screen reader must say "step 2 of 5".
+       -------------------------------------------------------------------- -->
+  <section class="stack" aria-labelledby="steps-h">
+    <h2 class="h2 display" id="steps-h">What to do, in order</h2>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <h3 class="step__title">Check if they respond</h3>
+          <p class="step__body">
+            Shout their name. Rub your knuckles hard on their breastbone.
+            If they don't wake up, keep going.
+          </p>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <h3 class="step__title">Give naloxone</h3>
+          <p class="step__body">
+            Tilt the head back. Put the nozzle in one nostril until your fingers
+            touch the nose. Press the plunger all the way. That's the whole dose —
+            one nostril, one press.
+          </p>
+          <p class="hint" style="margin-top: var(--sp-3);">
+            If nothing changes in 2–3 minutes, give a second dose in the other nostril.
+            You cannot hurt someone by giving naloxone when they don't need it.
+          </p>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <h3 class="step__title">Breathe for them</h3>
+          <p class="step__body">
+            Tilt the head back, pinch the nose, and give one breath every five
+            seconds. Follow the circle below.
+          </p>
+
+          <!-- ------------------------------------------------------------
+               RESCUE-BREATHING METRONOME.
+               THREE redundant channels, because a bystander may be looking at
+               the person and not the phone, may be in a loud room, or may have
+               reduced motion enabled:
+                 visual  the ring scales
+                 text    the word BREATHE / WAIT changes
+                 count   a visible seconds counter
+               aria-live="assertive" on the word: this is a timed instruction
+               and a polite announcement would arrive after the beat has passed.
+               The animation is reinforcement only — with motion disabled, the
+               text channel still carries the complete instruction.
+               ------------------------------------------------------------ -->
+          <div class="metronome" id="metronome" data-running="false" style="margin-top: var(--sp-5);">
+            <div class="metronome__ring" aria-hidden="true">
+              <p class="metronome__count data" id="metronome-count">5</p>
+            </div>
+            <p class="metronome__word" id="metronome-word" aria-live="assertive" aria-atomic="true">Ready</p>
+            <button type="button" class="btn btn--primary btn--lg" id="metronome-toggle"
+                    aria-pressed="false">
+              Start the rhythm
+            </button>
+            <p class="hint">One breath every five seconds. Watch their chest rise.</p>
+          </div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <h3 class="step__title">Put them on their side</h3>
+          <p class="step__body">
+            Once they're breathing on their own, roll them onto their side with
+            the top knee forward and the head tilted back. This stops them
+            choking if they vomit.
+          </p>
+
+          <!-- Recovery position, drawn inline as SVG: no image request, works
+               offline, scales without blurring, and inherits the tier colour.
+               role="img" + <title> so it is announced rather than skipped;
+               the written instruction above is the real content, so nothing is
+               lost if the graphic is not perceived. -->
+          <div class="diagram" style="margin-top: var(--sp-4);">
+            <svg viewBox="0 0 320 130" role="img" aria-labelledby="rp-title" width="100%" height="auto">
+              <title id="rp-title">A person lying on their side, top knee bent forward, head tilted back and resting on their arm.</title>
+              <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <!-- ground line -->
+                <path d="M10 112 H310" stroke-opacity="0.3"/>
+                <!-- head, tilted back -->
+                <circle cx="66" cy="70" r="17"/>
+                <!-- torso -->
+                <path d="M83 76 C120 62 165 62 205 74"/>
+                <path d="M84 92 C122 104 168 104 206 96"/>
+                <!-- lower arm, supporting the head -->
+                <path d="M92 88 L74 100 L58 92"/>
+                <!-- upper arm, forward -->
+                <path d="M110 70 L128 50 L152 56"/>
+                <!-- top leg, knee bent forward to stop them rolling -->
+                <path d="M205 84 L236 66 L262 88 L258 110"/>
+                <!-- bottom leg, straight -->
+                <path d="M206 96 L252 104 L292 106"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </li>
+
+      <li>
+        <div>
+          <h3 class="step__title">Stay until help arrives</h3>
+          <p class="step__body">
+            Naloxone wears off before the opioid does. They can stop breathing
+            again. Do not leave, and do not let them sleep it off alone.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- Address handoff. Only populated when the phone belongs to a Threshold
+       user who armed bystander mode — otherwise this section stays hidden
+       rather than showing an empty box that implies missing information. -->
+  <section class="card card--accent" id="address-card" hidden aria-labelledby="addr-h">
+    <div class="card__head">
+      <h2 class="label" id="addr-h">Read this address to the dispatcher</h2>
+    </div>
+    <p class="lede data" id="address-text"></p>
+  </section>
+
+  <p class="hint" style="text-align:center; padding-block: var(--sp-6);">
+    This page needs no account and works with no signal beyond the call itself.
+    <a href="/login" class="mark">Threshold sign-in</a>
+  </p>
+
+</main>
+
+<script src="/static/js/bystander.js" type="module"></script>
+</body>
+</html>

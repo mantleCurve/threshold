@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete your data — Threshold</title>
+<meta name="description" content="Delete your Threshold account and all associated data immediately.">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/public.css">
+</head>
+<body class="public" data-tier="0">
+<a href="#main" class="skip">Skip to content</a>
+
+<header class="masthead">
+  <a href="/home" style="text-decoration:none;color:var(--ink);font-weight:600">Threshold</a>
+  <nav aria-label="Primary">
+    <a href="/home">Home</a>
+    <a href="/emergency">Emergency</a>
+    <a href="/bystander">Overdose guide</a>
+    <a href="/contact">Contact</a>
+    <a href="/login">Sign in</a>
+  </nav>
+</header>
+
+<main class="public-main" id="main">
+
+  <div class="doc">
+    <h1 class="display" style="font-size:var(--step-5);margin-bottom:var(--sp-3)">Delete your data</h1>
+    <p class="updated">No forms to fill in. No retention period. No exit interview.</p>
+
+    <p class="prose">
+      Deletion is one action and it is immediate. We do not ask you why, we do not
+      offer you a discount to stay, and we do not keep a shadow copy for thirty
+      days. A person who cannot leave cleanly is a person who was never safe being
+      honest with us in the first place.
+    </p>
+
+    <h2>What gets deleted</h2>
+    <ul>
+      <li>Your account and password hash</li>
+      <li>Your profile: address, unit, entry code, substances, naloxone status</li>
+      <li>Your ladder configuration and full contact tree</li>
+      <li>Your entire event log, including every tier change</li>
+      <li>Memory Vault recordings and transcripts linked to your account</li>
+      <li>Any cached generations produced for you</li>
+    </ul>
+
+    <h2>What this cannot reach</h2>
+    <p>
+      Text generation runs through Google Gemini via OpenRouter. Content already
+      sent to that provider is governed by their retention policy and we cannot
+      delete it on your behalf. We can only stop sending more, which deleting your
+      account does immediately.
+    </p>
+    <p>
+      Alerts already delivered to a caregiver's device are on that device. We
+      cannot reach into someone else's phone and remove a message they already
+      received.
+    </p>
+
+    <h2>Delete now</h2>
+    <p class="prose">
+      You must be signed in. This cannot be undone, and there is no recovery
+      window.
+    </p>
+
+    <div style="margin-top:var(--sp-5);padding:var(--sp-5);border:1px solid color-mix(in oklab, var(--danger) 40%, transparent);border-radius:var(--radius-lg);background:color-mix(in oklab, var(--danger) 8%, var(--surface))">
+      <label style="display:flex;gap:var(--sp-3);align-items:flex-start;cursor:pointer">
+        <input type="checkbox" id="confirm" style="width:auto;margin-top:0.3em">
+        <span>I understand this permanently deletes my account, my emergency
+        script, my contact tree, and my entire history. This cannot be undone.</span>
+      </label>
+      <button id="del" class="btn btn-emergency" disabled style="margin-top:var(--sp-4);opacity:0.5">
+        Delete everything
+      </button>
+      <p id="d-status" role="status" aria-live="polite" style="margin-top:var(--sp-3);color:var(--ink-2)"></p>
+    </div>
+
+    <h2>Prefer to email?</h2>
+    <p>
+      <a href="/contact" class="mark">Contact us</a> and choose "Privacy or data
+      request". We will confirm deletion back to you.
+    </p>
+  </div>
+
+  <script>
+  // The button stays disabled until the checkbox is ticked. Deletion is
+  // irreversible, so it gets exactly one deliberate confirmation — one, not
+  // three: a confirmation gauntlet is its own kind of dark pattern.
+  const cb = document.getElementById('confirm');
+  const btn = document.getElementById('del');
+  const status = document.getElementById('d-status');
+
+  cb.addEventListener('change', () => {
+    btn.disabled = !cb.checked;
+    btn.style.opacity = cb.checked ? '1' : '0.5';
+  });
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    status.textContent = 'Deleting…';
+    try {
+      const r = await fetch('/api/account/delete', {method: 'POST'});
+      const j = await r.json();
+      status.textContent = j.ok
+        ? 'Deleted. Everything is gone. Take care of yourself.'
+        : ('Could not delete: ' + (j.detail || 'you may need to sign in first.'));
+    } catch (e) {
+      status.textContent = 'Could not reach the server. Nothing was deleted.';
+    }
+  });
+  </script>
+
+</main>
+
+<footer class="public-footer">
+  <div class="footer-inner">
+    <nav aria-label="Product">
+      <span class="label">Product</span>
+      <a href="/home">Home</a>
+      <a href="/login">Sign in</a>
+      <a href="/bystander">Overdose guide</a>
+    </nav>
+    <nav aria-label="Legal">
+      <span class="label">Legal</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/data-deletion">Delete my data</a>
+    </nav>
+    <nav aria-label="Contact">
+      <span class="label">Contact</span>
+      <a href="/contact">Contact us</a>
+      <a href="/emergency">Emergency numbers</a>
+    </nav>
+  </div>
+  <p class="footer-crisis">
+    In immediate danger? <a href="tel:911">Call 911</a> &nbsp;·&nbsp;
+    Crisis support: <a href="tel:988">988</a> &nbsp;·&nbsp;
+    <a href="/emergency">All emergency numbers</a>
+  </p>
+</footer>
+</body>
+</html>

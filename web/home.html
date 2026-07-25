@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threshold — Threshold</title>
+<meta name="description" content="A recovery and overdose-prevention platform for people navigating substance use, and the people who love them.">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/public.css">
+</head>
+<body class="public" data-tier="0">
+<a href="#main" class="skip">Skip to content</a>
+
+<header class="masthead">
+  <a href="/home" style="text-decoration:none;color:var(--ink);font-weight:600">Threshold</a>
+  <nav aria-label="Primary">
+    <a href="/home" aria-current="page">Home</a>
+    <a href="/emergency">Emergency</a>
+    <a href="/bystander">Overdose guide</a>
+    <a href="/contact">Contact</a>
+    <a href="/login">Sign in</a>
+  </nav>
+</header>
+
+<main class="public-main" id="main">
+
+  <!-- HERO. States what the product is in one sentence. The emergency route is
+       present above the fold on every page, including the marketing one — someone
+       in crisis should never have to parse a value proposition first. -->
+  <section class="hero">
+    <h1 class="display">Most of recovery is an ordinary Tuesday.</h1>
+    <p class="lede">
+      Threshold is a recovery and overdose-prevention platform for people
+      navigating substance use, and for the people who love them. It works
+      hardest on the days when nothing appears to be wrong.
+    </p>
+    <div class="hero-actions">
+      <a href="/login" class="btn btn-primary">Open the app</a>
+      <a href="/emergency" class="btn btn-emergency">Emergency numbers</a>
+    </div>
+  </section>
+
+  <!-- THE THESIS. This is the argument the product is making, stated plainly. -->
+  <section style="padding:var(--sp-7) 0">
+    <p class="label">Why this exists</p>
+    <p class="lede" style="max-width:52ch;margin-top:var(--sp-3)">
+      A panic button activates after something has already gone wrong. That
+      describes about one percent of the time a person spends in recovery.
+      We built for the other ninety-nine.
+    </p>
+
+    <div class="grid">
+      <article class="card">
+        <h3>Tolerance Guard</h3>
+        <p>
+          Tolerance collapses within days of abstinence. The remembered dose does
+          not. The period after detox, hospital discharge, or release is among the
+          highest-risk windows in medicine — so we speak up during it, unprompted,
+          before anything happens.
+        </p>
+      </article>
+      <article class="card">
+        <h3>An escalation ladder you control</h3>
+        <p>
+          Six states, from Baseline to Unresponsive. You see the whole ladder and
+          you decide who is told what, at which tier. One exception, disclosed up
+          front and not overridable: if we believe you are in medical danger, we
+          alert someone.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Emergency scripts, ready in advance</h3>
+        <p>
+          Under acute stress nobody can produce a coherent report. Your address,
+          your unit number, your door code, written down while you were calm and
+          read back to you one line at a time when you are not.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Your legal protection, said out loud</h3>
+        <p>
+          The most common reason people do not call 911 during an overdose is fear
+          of arrest. Most US states protect the caller. We say so first, before
+          anything else, without being asked.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Caregivers are users, not endpoints</h3>
+        <p>
+          An alert at 3am wakes someone into maximum panic. Ours arrives with what
+          happened, what the system already did, what to do in the next sixty
+          seconds — and what not to say.
+        </p>
+      </article>
+      <article class="card">
+        <h3>Real voices, not synthetic ones</h3>
+        <p>
+          The Memory Vault plays actual recordings made by the people who love you.
+          We deliberately do not clone anyone's voice. Consent given in calm is
+          spent in crisis, and a disclosure label does not survive that moment.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <!-- WHAT WE DIDN'T BUILD. Stating the declined choices is the most credible
+       thing a product in this space can do. -->
+  <section style="padding:var(--sp-6) 0;border-top:1px solid var(--line)">
+    <p class="label">What we deliberately did not build</p>
+    <div class="doc" style="margin-top:var(--sp-4)">
+      <ul>
+        <li><strong>No sobriety scores, streaks, or gamification.</strong> A person
+        who reports honestly while using is a person we can still protect. A person
+        who hides is not.</li>
+        <li><strong>No model-generated legal claims.</strong> Immunity law varies
+        substantially between states. A hallucinated legal protection is the worst
+        thing this product could tell someone. Our legal data is static and
+        human-reviewed.</li>
+        <li><strong>No AI in the safety-critical path.</strong> Triage is a
+        deterministic, tested state machine. The generative layer writes language;
+        it never decides whether you are in danger.</li>
+        <li><strong>No data sold, ever, to anyone.</strong> Not to insurers, not to
+        employers, not to law enforcement.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="public-footer">
+  <div class="footer-inner">
+    <nav aria-label="Product">
+      <span class="label">Product</span>
+      <a href="/home">Home</a>
+      <a href="/login">Sign in</a>
+      <a href="/bystander">Overdose guide</a>
+    </nav>
+    <nav aria-label="Legal">
+      <span class="label">Legal</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/data-deletion">Delete my data</a>
+    </nav>
+    <nav aria-label="Contact">
+      <span class="label">Contact</span>
+      <a href="/contact">Contact us</a>
+      <a href="/emergency">Emergency numbers</a>
+    </nav>
+  </div>
+  <p class="footer-crisis">
+    In immediate danger? <a href="tel:911">Call 911</a> &nbsp;·&nbsp;
+    Crisis support: <a href="tel:988">988</a> &nbsp;·&nbsp;
+    <a href="/emergency">All emergency numbers</a>
+  </p>
+</footer>
+</body>
+</html>

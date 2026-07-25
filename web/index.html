@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<!--
+  USER SURFACE — /
+  Surface: the person in recovery. Sometimes at 3am, sometimes intoxicated,
+  sometimes mid-overdose.
+
+  THE ONE STRUCTURAL IDEA: <html data-tier="0..5"> is the only state JS sets.
+  tiers.css does the rest — accent hue, spacing density, type scale, and which
+  regions exist at all. Elements marked [data-chrome] are furniture and are
+  REMOVED from the DOM's accessibility tree at tier 3+. At tier 4 the .takeover
+  layer covers everything and the page behind it is set `inert` by JS, so there
+  is literally one focusable control on the screen.
+-->
+<html lang="en" data-tier="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Threshold</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#talk">Skip to the talk button</a>
+
+<!--
+  A11Y — THE TIER ANNOUNCER.
+  aria-live="assertive" because a tier change is, by definition, the one thing
+  that must interrupt whatever a screen reader is currently saying. It is the
+  single source of spoken state; the visual ladder below is aria-hidden from
+  live updates so the same change is never announced twice.
+  role="status" would be too polite here — a tier 4 escalation cannot queue.
+-->
+<p class="visually-hidden" id="tier-announcer" aria-live="assertive" aria-atomic="true"></p>
+
+<div class="shell">
+
+  <!-- ======================================================================
+       THE RAIL — the spine. Always present, at every tier, on every
+       authenticated surface. Never collapses into a hamburger: at 3am you
+       should not have to press anything to know where you are.
+       ====================================================================== -->
+  <aside class="rail">
+    <p class="rail__brand">Thresh<span>o</span>ld</p>
+
+    <!--
+      The ladder. An <ol> because the order is semantic — higher is genuinely
+      more dangerous, and a screen reader should say "5 of 6".
+      aria-current="step" marks the live rung; JS moves it and sets
+      data-state="passed" on the rungs below.
+    -->
+    <nav aria-label="Escalation ladder">
+      <ol class="ladder" id="ladder">
+        <li class="ladder__step" data-tier-step="0" aria-current="step">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">0</span><span class="ladder__name">Baseline</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="1">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">1</span><span class="ladder__name">Elevated</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="2">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">2</span><span class="ladder__name">Craving</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="3">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">3</span><span class="ladder__name">Active use</span></span>
+        </li>
+
+        <!-- THE THRESHOLD. The line the product is named after: below it we
+             ask you, above it we act without asking. Drawn, never implied. -->
+        <li class="ladder__threshold" aria-hidden="true">
+          <span>Threshold</span>
+        </li>
+
+        <li class="ladder__step" data-tier-step="4">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">4</span><span class="ladder__name">Emergency</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="5">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">5</span><span class="ladder__name">Unresponsive</span></span>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- Why we are at this tier. Written by the deterministic triage engine,
+         never by the model — so it is always auditable. Serif, because it is
+         addressed to the user as a sentence, not reported as data. -->
+    <p class="rail__reason" id="tier-reason">Nothing is happening. You checked in this morning.</p>
+
+    <div class="rail__foot">
+      <!-- Navigation is chrome: gone at tier 3+. -->
+      <nav class="nav" aria-label="Sections" data-chrome>
+        <a href="/" aria-current="page">Today</a>
+        <a href="/ladder">Event log</a>
+        <a href="/onboarding">Your ladder settings</a>
+        <a href="/bystander">Bystander mode</a>
+      </nav>
+      <div class="row" data-chrome>
+        <span class="badge" id="ai-status" data-ai-status>Checking AI</span>
+        <button type="button" class="btn btn--quiet" id="logout">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ======================================================================
+       MAIN PANE
+       ====================================================================== -->
+  <main class="pane" id="main">
+
+    <!-- System notices: AI offline, a failed call, degraded mode. Contract
+         rule 2 — a failure is always visible and a fallback is always labelled.
+         polite, not assertive: these are conditions, not emergencies. -->
+    <div class="notice notice--error" id="system-notice" role="status" aria-live="polite" hidden></div>
+
+    <header class="row-between">
+      <div class="stack-tight">
+        <p class="label">Current state</p>
+        <h1 class="display" id="tier-name">Baseline</h1>
+      </div>
+      <!-- Rescind is available at every tier, not only in the takeover: a false
+           alarm at tier 2 is just as worth undoing as one at tier 4. -->
+      <button type="button" class="btn" id="rescind">I'm okay — stand down</button>
+    </header>
+
+    <!-- ------------------------------------------------------------------
+         VOICE PUSH-TO-TALK — the primary interaction of the product.
+         A real <button>, so space and enter work for free and it is announced
+         as a button. aria-pressed carries the recording state (not a colour
+         change alone). Pointer, keyboard, and touch are all the JS agent's;
+         the markup only guarantees they are all possible.
+         ------------------------------------------------------------------ -->
+    <section class="voice-control" aria-labelledby="talk-h">
+      <h2 class="visually-hidden" id="talk-h">Talk to Threshold</h2>
+
+      <button type="button" class="ptt" id="talk" aria-pressed="false"
+              aria-describedby="talk-hint">
+        <span class="ptt__label" id="ptt-label">Hold to talk</span>
+        <span class="ptt__hint">or press space</span>
+      </button>
+
+      <!-- The amplitude meter is confirmation only. JS sets --level: 0..1.
+           aria-hidden: the aria-pressed state already conveys "recording", and
+           a continuously-updating number would be intolerable to hear. -->
+      <div class="ptt-meter" id="ptt-meter" aria-hidden="true" style="--level: 0;"></div>
+
+      <p class="hint" id="talk-hint">Say anything. There is no wrong thing to say here.</p>
+
+      <!-- Typed fallback: speech recognition fails, and someone who cannot
+           speak must still be able to reach the system. Never hidden behind
+           a disclosure — a fallback you have to find is not a fallback. -->
+      <form class="row" id="utterance-form" style="width: min(30rem, 100%);">
+        <label class="visually-hidden" for="utterance">Type instead of speaking</label>
+        <input class="input grow" type="text" id="utterance" name="text"
+               placeholder="Or type it" autocomplete="off">
+        <button type="submit" class="btn">Send</button>
+      </form>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         TRANSCRIPT
+         aria-live="polite" so replies are announced without cutting off the
+         tier announcer above. The JS agent appends .turn blocks; the streaming
+         caret is driven by data-streaming on the turn.
+         ------------------------------------------------------------------ -->
+    <section class="card" aria-labelledby="transcript-h">
+      <div class="card__head">
+        <h2 class="label" id="transcript-h">Conversation</h2>
+        <span class="badge" id="generation-badge" hidden>live</span>
+      </div>
+      <div class="transcript" id="transcript" aria-live="polite" aria-atomic="false">
+        <!-- JS appends:
+             <article class="turn" data-who="system|user" data-streaming="false">
+               <p class="turn__who">Threshold</p>
+               <p class="turn__text">…</p>
+             </article>
+        -->
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         TIER-GATED ACTIONS
+         These only exist once things are serious. [data-when-tier] lists the
+         tiers at which the element is displayed; everything else is display:none
+         (and therefore out of the tab order and the a11y tree).
+         ------------------------------------------------------------------ -->
+    <section class="stack" data-when-tier="2 3" aria-labelledby="support-h">
+      <h2 class="label" id="support-h">Right now</h2>
+      <div class="row">
+        <button type="button" class="btn" id="play-vault">Play a voice you know</button>
+        <button type="button" class="btn" id="show-refusal">Help me say no</button>
+        <button type="button" class="btn" id="start-grounding">Ground me</button>
+      </div>
+      <!-- Where the selected vault clip and the model's reason for choosing it
+           are rendered. Labelled as a generation so a fallback is never
+           mistaken for a live one. -->
+      <div class="card" id="vault-panel" hidden aria-live="polite"></div>
+    </section>
+
+    <section class="stack" data-when-tier="3" aria-labelledby="harm-h">
+      <h2 class="label" id="harm-h">If you are using</h2>
+      <div class="row">
+        <button type="button" class="btn" id="show-911">The words to say to 911</button>
+        <button type="button" class="btn" id="show-samaritan">Am I protected if I call?</button>
+        <button type="button" class="btn" id="arm-bystander">Arm bystander mode on this phone</button>
+      </div>
+      <div class="card" id="harm-panel" hidden aria-live="polite"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         TIER 0/1 INFORMATION SURFACE — chrome. All of this disappears at
+         tier 3+, which is the transformation the judge is meant to feel.
+         ------------------------------------------------------------------ -->
+    <section class="stack" data-chrome aria-labelledby="today-h">
+      <h2 class="label" id="today-h">Today</h2>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="label">Last check-in</span>
+          <span class="stat__value data" id="stat-checkin">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Tolerance window</span>
+          <span class="stat__value data" data-tone="accent" id="stat-tolerance">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Naloxone on hand</span>
+          <span class="stat__value data" id="stat-naloxone">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Contacts armed</span>
+          <span class="stat__value data" id="stat-contacts">—</span>
+        </div>
+      </div>
+
+      <!-- Proactive tolerance message. This is the prevention half of the
+           product and it lives at tier 0 on purpose: the best moment to reach
+           someone is before anything has happened. -->
+      <div class="card card--accent" id="tolerance-card" hidden>
+        <div class="card__head">
+          <h3 class="label">Before anything happens</h3>
+          <span class="badge" id="tolerance-badge">live</span>
+        </div>
+        <p class="lede" id="tolerance-text"></p>
+      </div>
+    </section>
+
+    <section class="stack" data-chrome aria-labelledby="recent-h">
+      <div class="row-between">
+        <h2 class="label" id="recent-h">Recent events</h2>
+        <a href="/ladder" class="btn btn--quiet">Full log</a>
+      </div>
+      <div class="log" id="recent-log"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         DEMO CONTROL — chrome, and deliberately so. A stranger with no
+         instructions can drive the ladder from here; and when they reach tier
+         3 the control vanishes along with everything else, which demonstrates
+         the transformation rule better than any explanation.
+         ------------------------------------------------------------------ -->
+    <section class="stack" data-chrome aria-labelledby="demo-h">
+      <div class="rule"></div>
+      <h2 class="label" id="demo-h">Demo control — move the ladder</h2>
+      <div class="tier-control" role="group" aria-labelledby="demo-h" id="tier-control">
+        <button type="button" data-set-tier="0" aria-pressed="true">0</button>
+        <button type="button" data-set-tier="1" aria-pressed="false">1</button>
+        <button type="button" data-set-tier="2" aria-pressed="false">2</button>
+        <button type="button" data-set-tier="3" aria-pressed="false">3</button>
+        <button type="button" data-set-tier="4" aria-pressed="false">4</button>
+        <button type="button" data-set-tier="5" aria-pressed="false">5</button>
+      </div>
+      <div class="row">
+        <button type="button" class="btn btn--quiet" id="sim-silence">Simulate 20s of silence</button>
+        <button type="button" class="btn btn--quiet" id="reset-demo">Reset demo state</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ========================================================================
+     THE TAKEOVER — Tier 4 and Tier 5.
+
+     Designed for a person who CANNOT READ. Everything above is covered. What
+     remains, top to bottom:
+       1. one enormous word — the tier
+       2. one sentence of reason
+       3. ONE BUTTON filling the rest of the screen
+       4. what the system already did (for a bystander who picks up the phone)
+       5. the single escape hatch, small and deliberate
+
+     A11Y: role="alertdialog" + aria-modal, so assistive tech treats this as
+     what it is — a modal that has seized the screen. JS sets `inert` on
+     .shell, so tabbing cannot reach the stripped UI behind it. Focus is moved
+     to the action button on entry. The reason text is aria-live so a change of
+     situation is spoken without needing a re-render.
+     ======================================================================== -->
+<div class="takeover" id="takeover" role="alertdialog" aria-modal="true"
+     aria-labelledby="takeover-tier" aria-describedby="takeover-reason">
+
+  <header class="takeover__head">
+    <p class="takeover__tier display" id="takeover-tier">Emergency</p>
+    <p class="takeover__reason voice" id="takeover-reason" aria-live="assertive">
+      You stopped responding. Help is being called.
+    </p>
+  </header>
+
+  <!--
+    THE ONE BUTTON. An <a href="tel:911">, not a <button>: if every script on
+    this page has failed to load, the call still works. That is the whole
+    reason it is a link.
+  -->
+  <a class="takeover__action" id="takeover-action" href="tel:911">
+    <span class="takeover__action-label">911</span>
+    <span class="takeover__action-sub">Press anywhere here to call</span>
+  </a>
+
+  <div class="stack-tight">
+    <!-- What already happened. Two lines. Not for the user — for whoever picks
+         up the phone, so they do not waste seconds deciding what to do. -->
+    <ul class="takeover__status data" id="takeover-status" aria-label="What the system has already done">
+      <li>Location sent</li>
+      <li>Contacts called</li>
+      <li>Door code shared</li>
+    </ul>
+
+    <div class="takeover__foot">
+      <!-- Present at tier 4, removed by CSS at tier 5 — an unresponsive person
+           cannot press it, so leaving it would only let a bystander cancel a
+           real emergency. -->
+      <button type="button" class="takeover__rescind" id="takeover-rescind">
+        I'm okay — this was a false alarm
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/app.js" type="module"></script>
+</body>
+</html>

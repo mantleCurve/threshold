@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<!--
+  REGISTER — /register
+  Surface: anyone. An evaluator must be able to create a real working account,
+  so this is a full end-to-end form, not a decorative one. Role is chosen here
+  because it decides which surface they land on (user -> /, caregiver -> /caregiver).
+-->
+<html lang="en" data-tier="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Create an account — Threshold</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#signup">Skip to the form</a>
+
+<div class="auth">
+
+  <aside class="auth__aside">
+    <div class="stack">
+      <p class="wordmark">Thresh<span>o</span>ld</p>
+      <p class="lede" style="max-width: 26ch;">
+        Nothing here is hidden from you. Not the log, not the rules, not what your people can see.
+      </p>
+    </div>
+
+    <!-- The three promises. Stated before the account exists, because they are
+         the reason to make one — not settings to discover later. -->
+    <div class="stack">
+      <h2 class="label">What you are agreeing to</h2>
+      <ul class="stack" style="gap: var(--sp-4);">
+        <li class="panel">
+          <p>Every event is visible to you. There is no second log.</p>
+        </li>
+        <li class="panel">
+          <p>You choose which tiers your caregiver can see — except 4 and 5.</p>
+        </li>
+        <li class="panel">
+          <p>You can say "I'm okay" at any point and the ladder comes back down.</p>
+        </li>
+      </ul>
+    </div>
+
+    <p class="hint">
+      Already have an account? <a href="/login" class="mark">Sign in</a>
+    </p>
+  </aside>
+
+  <main class="auth__main" id="signup">
+    <div class="auth__form stack-loose">
+
+      <div class="stack-tight">
+        <h1 class="display" style="font-size: var(--step-4);">Create an account</h1>
+        <p class="hint">Or use the printed demo credentials on the <a href="/login" class="mark">sign-in page</a>.</p>
+      </div>
+
+      <form class="stack" id="register-form" method="post" action="/api/auth/register" novalidate>
+        <div class="field">
+          <label for="r-username">Username</label>
+          <input class="input" type="text" id="r-username" name="username"
+                 autocomplete="username" required autocapitalize="none" spellcheck="false"
+                 aria-describedby="r-username-hint">
+          <p class="hint" id="r-username-hint">Any name you like. It is not shown to anyone else.</p>
+        </div>
+
+        <div class="field">
+          <label for="r-password">Password</label>
+          <input class="input" type="password" id="r-password" name="password"
+                 autocomplete="new-password" required minlength="6"
+                 aria-describedby="r-password-hint">
+          <p class="hint" id="r-password-hint">Six characters or more.</p>
+        </div>
+
+        <!-- Role. This choice decides which product you get, so it is a
+             fieldset with a legend rather than a bare list of inputs: a screen
+             reader announces "Which are you?" once, then each option.
+             A11Y: <fieldset> + <legend> already forms a native radio group and
+             is announced correctly. An extra role="radiogroup" would override
+             the native semantics for no gain, so it is deliberately absent. -->
+        <fieldset class="field">
+          <legend class="label" style="margin-bottom: var(--sp-3);">Which are you?</legend>
+          <div class="stack-tight">
+            <label class="switch" style="grid-template-columns: 1.25rem 1fr; align-items: center;">
+              <input type="radio" name="role" value="user" checked
+                     style="width:1.25rem;height:1.25rem;border-radius:50%;">
+              <span class="switch__text">
+                In recovery
+                <span class="hint">You get the ladder, the voice control, and the log.</span>
+              </span>
+            </label>
+            <label class="switch" style="grid-template-columns: 1.25rem 1fr; align-items: center;">
+              <input type="radio" name="role" value="caregiver"
+                     style="width:1.25rem;height:1.25rem;border-radius:50%;">
+              <span class="switch__text">
+                A caregiver
+                <span class="hint">You get alerts, context, and exactly what you're allowed to see.</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- A11Y: assertive, because registration failure blocks the user. -->
+        <p class="error-text" id="register-error" role="alert" hidden></p>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="register-submit">Create account</button>
+      </form>
+
+      <div class="notice notice--warn">
+        <div>
+          <strong>Someone is overdosing right now?</strong>
+          <a href="/bystander" class="mark">Open bystander mode</a> — no account needed, ever.
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="/static/js/auth.js" type="module"></script>
+</body>
+</html>

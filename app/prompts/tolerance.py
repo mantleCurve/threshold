@@ -91,7 +91,7 @@ Write the message now. Message text only, no preamble.
 """
 
 
-def _describe_elapsed(event_at: datetime) -> str:
+def _describe_elapsed(event_at: datetime, now: datetime | None = None) -> str:
     """Render a gap in vague human units, never as a precise clinical count.
 
     Deliberate imprecision: "a few weeks" is enough for the message to make sense,
@@ -101,13 +101,17 @@ def _describe_elapsed(event_at: datetime) -> str:
     Args:
         event_at: Timestamp of the tolerance event. Naive datetimes are treated as UTC
             so a profile loaded from seeded JSON never raises here.
+        now: Reference time, injectable for testing. Defaults to the current UTC time.
 
     Returns:
         A vague human-readable duration such as "a few weeks ago".
     """
-    now = datetime.now(timezone.utc)
+    ref = now or datetime.now(timezone.utc)
+    # Both sides normalised to aware-UTC before subtraction: mixing naive and aware
+    # datetimes raises, and seeded fixtures and live DB rows differ on this.
+    ref = ref if ref.tzinfo else ref.replace(tzinfo=timezone.utc)
     at = event_at if event_at.tzinfo else event_at.replace(tzinfo=timezone.utc)
-    days = max((now - at).days, 0)
+    days = max((ref - at).days, 0)
 
     if days <= 1:
         return "in the last day or so"
@@ -138,7 +142,11 @@ def latest_event(profile: UserProfile) -> ToleranceEvent | None:
     )
 
 
-def build(profile: UserProfile, event: ToleranceEvent | None = None) -> tuple[str, str]:
+def build(
+    profile: UserProfile,
+    event: ToleranceEvent | None = None,
+    now: datetime | None = None,
+) -> tuple[str, str]:
     """Build the Tolerance Guard prompt.
 
     Args:
@@ -148,6 +156,8 @@ def build(profile: UserProfile, event: ToleranceEvent | None = None) -> tuple[st
             the prompt degrades to a generic "after a break" framing rather than
             failing — the caller (triage) is what decides this should fire, and a
             prompt builder must never be the thing that raises on a live crisis path.
+        now: Reference time for the "how long ago" phrasing. Injectable so the API layer
+            can pass its own clock and so tests are deterministic; defaults to now.
 
     Returns:
         (system, user) prompt strings.
@@ -159,7 +169,7 @@ def build(profile: UserProfile, event: ToleranceEvent | None = None) -> tuple[st
         event_phrase, elapsed, note = "they have had a break from using", "recently", ""
     else:
         event_phrase = _EVENT_PHRASING.get(ev.kind, "they have had a break from using")
-        elapsed = _describe_elapsed(ev.date)
+        elapsed = _describe_elapsed(ev.date, now)
         note = ev.note
 
     return (

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Threshold</title>
+<meta name="description" content="What Threshold stores, what it never stores, and who can see it.">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/public.css">
+</head>
+<body class="public" data-tier="0">
+<a href="#main" class="skip">Skip to content</a>
+
+<header class="masthead">
+  <a href="/home" style="text-decoration:none;color:var(--ink);font-weight:600">Threshold</a>
+  <nav aria-label="Primary">
+    <a href="/home">Home</a>
+    <a href="/emergency">Emergency</a>
+    <a href="/bystander">Overdose guide</a>
+    <a href="/contact">Contact</a>
+    <a href="/login">Sign in</a>
+  </nav>
+</header>
+
+<main class="public-main" id="main">
+
+  <div class="doc">
+    <h1 class="display" style="font-size:var(--step-5);margin-bottom:var(--sp-3)">Privacy Policy</h1>
+    <p class="updated">Last updated 25 July 2026 · Hackathon prototype</p>
+
+    <div class="note">
+      <p><strong>The short version.</strong> We collect the least we can. We never
+      sell anything. We never share with law enforcement, employers, or insurers.
+      Every event we record is visible to you inside the app — there is no hidden
+      log. You can delete everything at any time.</p>
+    </div>
+
+    <h2>Why privacy is a safety feature here, not a formality</h2>
+    <p>
+      Using alone is the single largest risk factor in a fatal overdose. Any system
+      that makes people feel watched pushes them toward using alone, which makes
+      them less safe, not more. So restraint about data is not a compliance
+      checkbox in this product — it is the thing that keeps the product from
+      backfiring. That reasoning shaped the architecture, and this policy
+      describes the result.
+    </p>
+
+    <h2>What we store</h2>
+    <ul>
+      <li><strong>Account:</strong> username and a salted scrypt hash of your
+      password. We never store your password itself and cannot recover it.</li>
+      <li><strong>Profile:</strong> the details you enter for your emergency
+      script — address, unit, entry code, cross street, substances, whether you
+      have naloxone. This exists so a 911 script can be read aloud for you.</li>
+      <li><strong>Ladder configuration:</strong> your tier settings and contact
+      tree.</li>
+      <li><strong>Event log:</strong> tier changes, what triggered them, and what
+      the system did. Append-only, and fully visible to you at any time.</li>
+      <li><strong>Memory Vault:</strong> recordings made by your caregivers, and
+      their transcripts.</li>
+    </ul>
+
+    <h2>What we deliberately do not store</h2>
+    <ul>
+      <li>No continuous audio. This build is push-to-talk; the microphone is not
+      always listening.</li>
+      <li>No background location. Location is acquired only during a Tier 4 or 5
+      emergency, for the purpose of telling responders where you are.</li>
+      <li>No advertising identifiers, no third-party analytics, no tracking
+      pixels, no social media SDKs.</li>
+      <li>No sobriety score. We do not rate you.</li>
+    </ul>
+
+    <h2>Who sees what</h2>
+    <p>
+      Your caregivers see exactly what your ladder configuration permits, and the
+      caregiver interface tells them explicitly what they cannot see, so there is
+      no ambiguity in either direction. Tiers 0 through 3 are yours to control.
+      Tiers 4 and 5 always notify — disclosed at onboarding, stated in the Terms,
+      and repeated here.
+    </p>
+
+    <h2>The generative layer</h2>
+    <p>
+      Text generation is performed by Google Gemini via OpenRouter. When a
+      generation runs, the relevant prompt content is sent to that provider and is
+      subject to their terms. We do not send your password, your session token, or
+      your full event history. If you would rather nothing left the device, do not
+      use the generative features — the escalation ladder, the emergency flow, and
+      the legal information all work without them, because none of them depend on
+      a model.
+    </p>
+
+    <h2>Law enforcement, employers, insurers</h2>
+    <p>
+      We do not share your data with any of them. In the United States, substance
+      use disorder treatment records carry confidentiality protections stricter
+      than ordinary health data under 42 CFR Part 2 — a distinct consent regime,
+      partially aligned with HIPAA following the CARES Act but still separate.
+      This prototype is not a covered treatment program, but it is built to be
+      compatible with that posture rather than against it.
+    </p>
+
+    <h2>Security</h2>
+    <p>
+      Passwords are hashed with scrypt and a per-user salt. Session cookies are
+      HMAC-signed, HttpOnly, and SameSite. API keys live only in the server
+      environment and never appear in a response body or a log line. This is
+      prototype software and has not had a formal security audit; we would rather
+      tell you that than imply otherwise.
+    </p>
+
+    <h2>Retention and deletion</h2>
+    <p>
+      Data persists until you delete it. Deletion is immediate and total.
+      <a href="/data-deletion" class="mark">Delete your data here</a>.
+    </p>
+
+    <h2>Children</h2>
+    <p>
+      This prototype is not intended for users under 18. Minors and mandatory
+      reporting raise genuinely difficult questions that we did not attempt to
+      solve under hackathon constraints, and we would rather scope out honestly
+      than handle it badly.
+    </p>
+
+    <h2>Contact</h2>
+    <p>Privacy questions: <a href="/contact" class="mark">contact us</a>.</p>
+  </div>
+
+</main>
+
+<footer class="public-footer">
+  <div class="footer-inner">
+    <nav aria-label="Product">
+      <span class="label">Product</span>
+      <a href="/home">Home</a>
+      <a href="/login">Sign in</a>
+      <a href="/bystander">Overdose guide</a>
+    </nav>
+    <nav aria-label="Legal">
+      <span class="label">Legal</span>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/data-deletion">Delete my data</a>
+    </nav>
+    <nav aria-label="Contact">
+      <span class="label">Contact</span>
+      <a href="/contact">Contact us</a>
+      <a href="/emergency">Emergency numbers</a>
+    </nav>
+  </div>
+  <p class="footer-crisis">
+    In immediate danger? <a href="tel:911">Call 911</a> &nbsp;·&nbsp;
+    Crisis support: <a href="tel:988">988</a> &nbsp;·&nbsp;
+    <a href="/emergency">All emergency numbers</a>
+  </p>
+</footer>
+</body>
+</html>

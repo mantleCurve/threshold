@@ -1,0 +1,348 @@
+/* ============================================================================
+   THRESHOLD — public.css
+   The public, unauthenticated surface: homepage, contact, emergency contacts,
+   terms, privacy, data deletion.
+
+   Load order: base.css -> tiers.css -> public.css
+
+   WHY A SEPARATE STYLESHEET
+   The app surfaces are a *tool* — dense, tier-driven, built for someone who may
+   be impaired. These pages are *documents*, read by someone calm: a family
+   member deciding whether to trust this, or an evaluator reading the policies.
+   Different job, different rhythm. They share the tokens so they never feel
+   like a different product, but they do not share the app's chrome.
+
+   Everything here authors against the tokens in base.css. No new colours, no
+   new type scale, no hardcoded hex values.
+   ========================================================================= */
+
+/* ------------------------------------------------------------- page frame - */
+
+/* Public pages sit at tier 0 permanently: the accent stays teal and steady.
+   A marketing page must never borrow the visual language of an emergency. */
+.public {
+  --density: 1;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.public-main {
+  flex: 1;
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5) var(--sp-8);
+}
+
+/* Long-form legal and policy text. 68ch keeps line length in the comfortable
+   reading band — legal copy that nobody can read is functionally undisclosed. */
+.doc { max-width: 68ch; }
+.doc h2 {
+  font-size: var(--step-3);
+  font-weight: 550;
+  letter-spacing: var(--track-tight);
+  margin-top: var(--sp-7);
+  margin-bottom: var(--sp-3);
+  color: var(--ink);
+}
+.doc h3 {
+  font-size: var(--step-1);
+  font-weight: 600;
+  margin-top: var(--sp-5);
+  margin-bottom: var(--sp-2);
+  color: var(--ink);
+}
+.doc p, .doc li {
+  color: var(--ink-2);
+  margin-bottom: var(--sp-3);
+  text-wrap: pretty;
+}
+.doc ul { margin-bottom: var(--sp-4); }
+.doc li {
+  padding-left: var(--sp-4);
+  position: relative;
+}
+/* A hairline rather than a bullet glyph: quieter, and it aligns to the grid. */
+.doc li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: var(--sp-3);
+  height: 1px;
+  background: var(--line-strong);
+}
+.doc strong { color: var(--ink); font-weight: 600; }
+
+/* --------------------------------------------------------------- masthead - */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--canvas-deep) 70%, transparent);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.masthead nav {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.masthead nav a {
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: var(--step-00);
+  transition: color var(--dur-1) var(--ease);
+}
+.masthead nav a:hover { color: var(--ink); }
+/* aria-current marks the active page for screen readers; this is the visual
+   counterpart of that same information. */
+.masthead nav a[aria-current="page"] { color: var(--accent); }
+
+/* ------------------------------------------------------------------ hero - */
+
+.hero {
+  padding: var(--sp-8) 0 var(--sp-7);
+  border-bottom: 1px solid var(--line);
+}
+
+.hero h1 {
+  font-size: var(--step-6);
+  font-weight: 550;
+  letter-spacing: var(--track-tight);
+  line-height: 1.02;
+  max-width: 16ch;
+  margin-bottom: var(--sp-5);
+}
+
+.hero .lede { max-width: 46ch; margin-bottom: var(--sp-6); }
+
+.hero-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+
+/* --------------------------------------------------------------- buttons - */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: var(--step-0);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease),
+              border-color var(--dur-1) var(--ease),
+              transform var(--dur-1) var(--ease);
+}
+.btn:hover { background: var(--surface-3); border-color: var(--accent-line); }
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: color-mix(in oklab, var(--accent) 88%, white);
+  border-color: transparent;
+}
+
+/* The emergency button is the one place we break the restrained palette.
+   It is always red regardless of tier, always the largest target on the page,
+   and never competes with a neighbouring control for attention. */
+.btn-emergency {
+  background: var(--danger);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 650;
+  font-size: var(--step-1);
+  padding: var(--sp-4) var(--sp-6);
+}
+.btn-emergency:hover { background: color-mix(in oklab, var(--danger) 88%, white); }
+
+/* ----------------------------------------------------------------- cards - */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+
+.card {
+  padding: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.card h3 {
+  font-size: var(--step-1);
+  font-weight: 600;
+  margin-bottom: var(--sp-2);
+  color: var(--ink);
+}
+.card p { color: var(--ink-2); font-size: var(--step-0); }
+
+/* ------------------------------------------------------ emergency contacts */
+
+/* This block is deliberately the loudest thing on any page it appears on.
+   Someone may land here mid-crisis having never seen this site before, and
+   the number they need must be reachable without reading a sentence first. */
+.emergency-band {
+  border: 1px solid color-mix(in oklab, var(--danger) 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--danger) 9%, var(--surface));
+  padding: var(--sp-5);
+  margin-bottom: var(--sp-6);
+}
+
+.emergency-band .label { color: color-mix(in oklab, var(--danger) 70%, var(--ink)); }
+
+/* A dialable number. tel: links matter here — on a phone this is one tap, and
+   a tap is all we can assume someone has. */
+.tel {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+}
+.tel:last-child { border-bottom: 0; }
+
+.tel-number {
+  font-family: var(--font-data);
+  font-size: var(--step-4);
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums;
+}
+a.tel:hover .tel-number { color: var(--accent); }
+
+.tel-name { font-size: var(--step-1); font-weight: 550; color: var(--ink); }
+.tel-note { font-size: var(--step-00); color: var(--ink-3); flex-basis: 100%; }
+
+/* An unverified number must look different from a verified one. Honesty about
+   data quality is a product feature here, not an admission of unfinished work. */
+.unverified {
+  display: inline-block;
+  font-size: var(--step-000);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent-2);
+  border: 1px solid color-mix(in oklab, var(--accent-2) 35%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--sp-2);
+  vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------ forms - */
+
+.field { margin-bottom: var(--sp-4); }
+.field label {
+  display: block;
+  font-size: var(--step-00);
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: var(--sp-2);
+}
+.field input, .field textarea, .field select {
+  width: 100%;
+  padding: var(--sp-3);
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--canvas-deep);
+  color: var(--ink);
+  font-size: var(--step-0);
+}
+.field textarea { min-height: 8rem; resize: vertical; }
+.field-hint { font-size: var(--step-00); color: var(--ink-3); margin-top: var(--sp-2); }
+
+/* ---------------------------------------------------------------- footer - */
+
+.public-footer {
+  border-top: 1px solid var(--line);
+  padding: var(--sp-6) var(--sp-5);
+  background: var(--canvas-deep);
+}
+.footer-inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
+}
+.public-footer nav { display: flex; flex-direction: column; gap: var(--sp-2); }
+.public-footer a {
+  color: var(--ink-3);
+  text-decoration: none;
+  font-size: var(--step-00);
+}
+.public-footer a:hover { color: var(--ink); }
+.public-footer .label { margin-bottom: var(--sp-1); }
+
+/* A standing crisis line in the footer of every page. Someone who scrolls to
+   the bottom looking for help should find it there. */
+.footer-crisis {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  max-width: 72rem;
+  margin-inline: auto;
+  font-size: var(--step-00);
+  color: var(--ink-3);
+}
+.footer-crisis a { color: var(--accent); text-decoration: none; }
+
+/* --------------------------------------------------------------- callouts - */
+
+.note {
+  border-left: 2px solid var(--accent-line);
+  padding: var(--sp-3) 0 var(--sp-3) var(--sp-4);
+  margin: var(--sp-5) 0;
+  color: var(--ink-2);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 70%);
+}
+
+.updated {
+  font-family: var(--font-data);
+  font-size: var(--step-00);
+  color: var(--ink-3);
+  margin-bottom: var(--sp-6);
+}
+
+/* --------------------------------------------------------------- responsive */
+
+@media (max-width: 46rem) {
+  .masthead { flex-direction: column; align-items: flex-start; gap: var(--sp-3); }
+  .masthead nav { gap: var(--sp-4); }
+  .public-main { padding: var(--sp-5) var(--sp-4) var(--sp-7); }
+  .hero { padding: var(--sp-6) 0 var(--sp-5); }
+  .tel-number { font-size: var(--step-3); }
+}
+
+/* Respect the user's motion preference. Someone with vestibular sensitivity
+   should not be made unwell by a page about their own health. */
+@media (prefers-reduced-motion: reduce) {
+  .btn, .masthead nav a, .tel { transition: none; }
+}

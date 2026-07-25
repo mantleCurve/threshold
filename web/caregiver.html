@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<!--
+  CAREGIVER SURFACE — /caregiver
+  Surface: an exhausted family member, usually woken by this page.
+
+  Ordered by what they need in the first ten seconds, not by data model:
+    1. what is happening (tier + AI-written context)
+    2. what the system ALREADY did (so they don't duplicate or panic)
+    3. the next 60 seconds (one instruction at a time)
+    4. what NOT to say (the highest-value, easiest-to-skip content)
+    5. exactly what they can and cannot see (the trust boundary, stated plainly)
+
+  The ladder rail is present here too — a caregiver and a user looking at their
+  own screens are looking at the same spine, which is the point.
+-->
+<html lang="en" data-tier="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Caregiver — Threshold</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/tiers.css">
+<link rel="stylesheet" href="/static/css/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to the alert</a>
+
+<!-- A11Y: assertive. A caregiver page that changes tier while they are reading
+     it must interrupt — that is the entire purpose of this surface. -->
+<p class="visually-hidden" id="tier-announcer" aria-live="assertive" aria-atomic="true"></p>
+
+<div class="shell">
+
+  <aside class="rail">
+    <p class="rail__brand">Thresh<span>o</span>ld</p>
+
+    <p class="label">Watching</p>
+    <p class="lede" style="font-size: var(--step-1); margin-top: calc(var(--sp-2) * -1);" id="watched-name">Sam</p>
+
+    <nav aria-label="Escalation ladder">
+      <ol class="ladder" id="ladder">
+        <li class="ladder__step" data-tier-step="0" aria-current="step">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">0</span><span class="ladder__name">Baseline</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="1">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">1</span><span class="ladder__name">Elevated</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="2">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">2</span><span class="ladder__name">Craving</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="3">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">3</span><span class="ladder__name">Active use</span></span>
+        </li>
+        <li class="ladder__threshold" aria-hidden="true"><span>Threshold</span></li>
+        <li class="ladder__step" data-tier-step="4">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">4</span><span class="ladder__name">Emergency</span></span>
+        </li>
+        <li class="ladder__step" data-tier-step="5">
+          <span class="ladder__dot" aria-hidden="true"></span>
+          <span><span class="ladder__num">5</span><span class="ladder__name">Unresponsive</span></span>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- A caregiver may be seeing a dimmed ladder: if Sam has hidden tier 2
+         and 3, those rungs are shown as unavailable rather than absent, so the
+         caregiver knows a boundary exists rather than assuming nothing happened. -->
+    <p class="rail__reason" id="tier-reason">Nothing is happening.</p>
+
+    <div class="rail__foot">
+      <nav class="nav" aria-label="Sections" data-chrome>
+        <a href="/caregiver" aria-current="page">Alert</a>
+        <a href="/ladder">Event log</a>
+        <a href="/bystander">Bystander mode</a>
+      </nav>
+      <div class="row" data-chrome>
+        <span class="badge" id="ai-status" data-ai-status>Checking AI</span>
+        <button type="button" class="btn btn--quiet" id="logout">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="pane" id="main">
+
+    <div class="notice notice--error" id="system-notice" role="status" aria-live="polite" hidden></div>
+
+    <!-- ---------------------------------------------------------------- 1 -
+         THE ALERT. Tier word first, at display size, in the tier colour — a
+         caregiver reading this at 3am on a phone should know the severity
+         before their eyes focus on any sentence.
+         -------------------------------------------------------------------->
+    <section class="alert-head stack" aria-labelledby="alert-h">
+      <p class="label" id="alert-h">What is happening</p>
+      <p class="alert-head__tier display" id="alert-tier">Baseline</p>
+
+      <!-- AI-generated situation summary. Badged live/fallback per the
+           contract: a cached fallback must never pass as a fresh generation. -->
+      <div class="row" style="gap: var(--sp-3);">
+        <span class="badge" id="brief-badge">live</span>
+        <span class="hint data" id="brief-meta"></span>
+      </div>
+      <p class="lede" id="brief-text" aria-live="polite">Loading the situation summary…</p>
+
+      <div class="row">
+        <a class="btn btn--primary" href="tel:911" id="alert-call-911">Call 911</a>
+        <button type="button" class="btn" id="alert-call-user">Call Sam</button>
+        <button type="button" class="btn btn--quiet" id="brief-refresh">Regenerate summary</button>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------------- 2 -
+         WHAT THE SYSTEM ALREADY DID.
+         Placed before the instructions on purpose: a caregiver who does not
+         know 911 is already called will call it again and lose ninety seconds.
+         Numbers come from a CSS counter, so JS can inject rows freely.
+         -------------------------------------------------------------------->
+    <section class="card" aria-labelledby="did-h">
+      <div class="card__head">
+        <h2 class="label" id="did-h">What Threshold already did</h2>
+        <span class="hint">Deterministic — not AI-decided</span>
+      </div>
+      <ol class="timeline" id="already-did">
+        <!-- JS appends:
+             <li><time datetime="…">02:14</time><p>…</p></li> -->
+      </ol>
+    </section>
+
+    <!-- ---------------------------------------------------------------- 3 -
+         THE NEXT 60 SECONDS. One instruction at a time. Set at lede size
+         because a frightened person reading a paragraph reads nothing.
+         -------------------------------------------------------------------->
+    <section class="card card--accent" aria-labelledby="next-h">
+      <div class="card__head">
+        <h2 class="label" id="next-h">The next 60 seconds</h2>
+        <span class="badge" id="next-badge">live</span>
+      </div>
+      <ol class="steps" id="next-60" aria-live="polite">
+        <!-- JS appends <li><p class="step__title">…</p><p class="step__body">…</p></li> -->
+      </ol>
+    </section>
+
+    <!-- ---------------------------------------------------------------- 4 -
+         WHAT NOT TO SAY.
+         The highest-value content on the page and the easiest to skim past, so
+         it gets its own visual language: the wrong phrasing struck through,
+         the replacement directly under it, and the reason in small type.
+         Struck-through text is also marked with <del>/<ins>, so a screen
+         reader conveys the distinction that the strike conveys visually.
+         -------------------------------------------------------------------->
+    <section class="card" aria-labelledby="notsay-h">
+      <div class="card__head">
+        <h2 class="label" id="notsay-h">What not to say</h2>
+        <span class="badge" id="notsay-badge">live</span>
+      </div>
+      <ul class="say-not" id="say-not">
+        <!-- JS appends:
+             <li>
+               <del class="dont">…</del>
+               <ins class="do">…</ins>
+               <span class="why">…</span>
+             </li> -->
+      </ul>
+    </section>
+
+    <!-- ---------------------------------------------------------------- 5 -
+         THE TRUST BOUNDARY.
+         Stated in full, never collapsed behind a disclosure, and never
+         softened. A caregiver who knows the limits is less likely to
+         interrogate; a user who knows the caregiver's limits keeps using the
+         product honestly. This section is the reason the product is trusted at
+         all, so it is on the page rather than in a settings screen.
+         -------------------------------------------------------------------->
+    <section class="stack" aria-labelledby="see-h">
+      <h2 class="label" id="see-h">Exactly what you can and cannot see about Sam</h2>
+      <div class="visibility">
+        <div class="can">
+          <h3 class="label" style="color: var(--accent-0);">You can see</h3>
+          <ul class="stack-tight" id="can-see">
+            <li>The tier, whenever it is one Sam has shared with you.</li>
+            <li>Tier 4 and tier 5, always — Sam cannot switch these off, and knows that.</li>
+            <li>The reason the tier changed, in the system's own words.</li>
+            <li>What the system did in response, and when.</li>
+            <li>Sam's address and entry code, at tier 4 and above only.</li>
+          </ul>
+        </div>
+        <div class="cannot">
+          <h3 class="label">You cannot see</h3>
+          <ul class="stack-tight" id="cannot-see">
+            <li>Anything Sam said. Transcripts are never shared with you.</li>
+            <li>Which substances were involved.</li>
+            <li>Tier 2 and tier 3, unless Sam has turned those on for you.</li>
+            <li>Location, at any tier below 4.</li>
+            <li>Anything at all after Sam stands down — the alert closes with it.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="hint">
+        Sam sets these on their own ladder page and can see this same list.
+        There is no second view of Sam that you are not being shown.
+      </p>
+    </section>
+
+    <section class="stack" data-chrome aria-labelledby="crecent-h">
+      <div class="row-between">
+        <h2 class="label" id="crecent-h">Recent events you can see</h2>
+        <a href="/ladder" class="btn btn--quiet">Full log</a>
+      </div>
+      <div class="log" id="recent-log"></div>
+    </section>
+
+  </main>
+</div>
+
+<script src="/static/js/caregiver.js" type="module"></script>
+</body>
+</html>
