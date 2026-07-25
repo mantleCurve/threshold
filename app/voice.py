@@ -169,12 +169,13 @@ async def synthesize(
         return Speech(b"", False, vid, cloned, "Nothing to say", model_id=model_id)
 
     try:
-        res = await _http().post(
-            f"{_API_ROOT}/text-to-speech/{vid}",
-            headers={"xi-api-key": key, "Content-Type": "application/json"},
-            json={
+        async def request(model: str) -> httpx.Response:
+            return await _http().post(
+                f"{_API_ROOT}/text-to-speech/{vid}",
+                headers={"xi-api-key": key, "Content-Type": "application/json"},
+                json={
                 "text": text,
-                "model_id": model_id,
+                "model_id": model,
                 "voice_settings": {
                     "stability": 0.65 if urgent else 0.5,
                     "similarity_boost": 0.8,
@@ -182,7 +183,25 @@ async def synthesize(
                     "use_speaker_boost": True,
                 },
             },
-        )
+            )
+
+        res = await request(model_id)
+        if (
+            res.status_code != 200
+            and urgent
+            and model_id != _TTS_MODEL_EXPRESSIVE
+        ):
+            # Flash is the latency preference, not a single point of failure.
+            # ElevenLabs can transiently reject one model while v3 remains
+            # healthy. Retry once within the cloud provider before asking the
+            # browser to fall back to its robotic local voice.
+            log.warning(
+                "urgent tts model returned HTTP %s; retrying with %s",
+                res.status_code,
+                _TTS_MODEL_EXPRESSIVE,
+            )
+            model_id = _TTS_MODEL_EXPRESSIVE
+            res = await request(model_id)
         if res.status_code != 200:
             # Never surface the provider's raw body — it can echo the request.
             return Speech(

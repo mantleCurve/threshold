@@ -59,6 +59,16 @@ class Client:
         self.is_closed = True
 
 
+class SequenceClient(Client):
+    def __init__(self, responses):
+        super().__init__()
+        self.responses = iter(responses)
+
+    async def post(self, url, **kwargs):
+        self.calls.append(("post", url, kwargs))
+        return next(self.responses)
+
+
 @pytest.mark.anyio
 async def test_email_delivery_success_and_payload(monkeypatch):
     client = Client()
@@ -142,6 +152,17 @@ async def test_voice_model_routing_and_failures(monkeypatch):
     result = await voice.synthesize("Call 911.", urgent=True)
     assert result.model_id == "eleven_flash_v2_5"
     assert urgent.calls[0][2]["json"]["model_id"] == "eleven_flash_v2_5"
+
+    retry = SequenceClient([Response(503), Response(content=b"v3-retry")])
+    monkeypatch.setattr(voice, "_http", lambda: retry)
+    result = await voice.synthesize("Call 911.", urgent=True)
+    assert result.live is True
+    assert result.audio == b"v3-retry"
+    assert result.model_id == "eleven_v3"
+    assert [call[2]["json"]["model_id"] for call in retry.calls] == [
+        "eleven_flash_v2_5",
+        "eleven_v3",
+    ]
 
     monkeypatch.setattr(voice, "_http", lambda: Client(Response(429)))
     assert (await voice.synthesize("Hello")).live is False
