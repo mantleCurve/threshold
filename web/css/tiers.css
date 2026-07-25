@@ -314,13 +314,48 @@ h2, .h2 { font-size: calc(var(--step-3) * var(--scale)); }
   border: 1px solid var(--line-strong);
   color: var(--ink-2);
   padding: 0.7em 1.4em;
+  /* 44px on BOTH axes. "Hard to hit by accident" is about placement and
+     contrast — it is deliberately small-looking, far from the 911 button, and
+     low-contrast against it. It is NOT about making the target undersized:
+     someone who genuinely means to stand down a false alarm is often the same
+     shaking, panicking hand, and a target they cannot land on is how a false
+     alarm becomes an unwanted emergency call. WCAG 2.5.8. */
   min-height: 2.75rem;
+  min-width: 2.75rem;
   border-radius: var(--radius-pill);
   font-size: var(--step-00);
   cursor: pointer;
 }
 .takeover__rescind:hover { color: var(--ink); border-color: var(--ink-3); }
 [data-tier="5"] .takeover__rescind { display: none; }
+
+/* ---- SPOKEN-GUIDANCE CAPTION -------------------------------------------
+   The written half of everything the emergency flow says out loud.
+
+   Sized and weighted like real content, not like a status line, because for a
+   deaf or hard-of-hearing user this IS the instruction — "press the button",
+   "if you have Narcan, use it now". A caption set at metadata scale would make
+   the primary guidance the least legible text on an emergency screen.
+
+   Set in the voice serif to match .takeover__reason above it: both are the
+   system speaking to a person, and they read as one continuous address rather
+   than a sentence followed by a readout.
+   ------------------------------------------------------------------------ */
+.takeover__caption {
+  position: relative;
+  text-align: center;
+  font-family: var(--font-voice);
+  font-size: clamp(1rem, 2.4vw, 1.25rem);
+  line-height: 1.35;
+  color: var(--ink);
+  max-width: 40ch;
+  margin-inline: auto;
+  text-wrap: balance;
+  /* A left accent bar would fight the centred layout; a top rule reads as
+     "this is the spoken track" without pulling the eye off the 911 button. */
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--accent-line);
+}
 
 /* What the system already did, under the button. Two lines maximum. The user
    is not expected to read it — it is there so a bystander who picks up the

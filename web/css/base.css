@@ -229,14 +229,48 @@ legend { padding: 0; }
 .skip-link:focus-visible { transform: translateY(0); }
 
 /* One focus treatment everywhere: a solid accent ring with a dark spacer so
-   it stays visible on light fills, dark fills and photographs alike. */
-:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
+   it stays visible on light fills, dark fills and photographs alike.
+
+   3px, not 2px. The accent hue shifts with the tier (teal at 0, red at 4), and
+   at the calmer tiers a 2px accent ring on a near-black canvas is genuinely
+   hard to find — a keyboard user loses their place on a page whose whole job
+   is to be usable at 3am. The white outer ring is what guarantees the
+   indicator survives on the saturated fills (.btn--primary, .btn--emergency,
+   the 911 takeover) where an accent-on-accent ring would vanish.
+
+   NOT :where() any more. :where() has zero specificity, so a component rule as
+   ordinary as `.btn:hover { border-color: … }` could out-rank the focus ring
+   and quietly erase it. A plain selector list keeps it authoritative. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--canvas-deep);
+  /* Two rings: dark spacer immediately outside the outline, white beyond it.
+     One of the two always contrasts, whatever the element is sitting on. */
+  box-shadow: 0 0 0 2px var(--canvas-deep), 0 0 0 5px rgba(255, 255, 255, 0.9);
   border-radius: var(--radius);
 }
 :focus:not(:focus-visible) { outline: none; }
+
+/* Forced-colours (Windows High Contrast) discards our colours entirely. The
+   system keyword keeps a real, visible ring instead of nothing. */
+@media (forced-colors: active) {
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 3px solid Highlight;
+    box-shadow: none;
+  }
+}
 
 @media (prefers-contrast: more) {
   :root {
@@ -344,11 +378,17 @@ legend { padding: 0; }
   --btn-line: var(--btn-bg);
 }
 
+/* Quiet buttons drop the fill and the border, NOT the hit area. They inherit
+   .btn's min-height: 2.75rem (44px) and keep a 44px floor on the cross axis
+   too — "Sign out" and "Reset demo state" are small, low-contrast targets and
+   a shaking or imprecise hand needs the same target size as anywhere else.
+   WCAG 2.5.8 / 2.5.5. */
 .btn--quiet {
   --btn-bg: transparent;
   --btn-line: transparent;
   --btn-fg: var(--ink-2);
-  padding-inline: 0.5em;
+  padding-inline: 0.75em;
+  min-width: 2.75rem;
 }
 .btn--quiet:hover { --btn-fg: var(--ink); --btn-bg: var(--surface-2); }
 
@@ -625,7 +665,15 @@ legend { padding: 0; }
 .rail__foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-3); }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
+/* Rail navigation. The visible text stays small on purpose — it is furniture,
+   and it should not compete with the ladder — but the TARGET does not have to
+   be small with it. display:flex + min-height 2.75rem (44px) grows the hit
+   area without changing the type size, which is the WCAG 2.5.8 fix that costs
+   nothing visually. */
 .nav a {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
   padding: var(--sp-2) var(--sp-2);
   margin-inline: calc(var(--sp-2) * -1);
   color: var(--ink-3);

@@ -14,3 +14,4 @@ python-multipart>=0.0.20   # Form parsing for the login/register posts
 # Testing. Testing is a scored judging category.
 pytest>=8.3
 pytest-asyncio>=0.25
+pytest-cov>=6.0          # Coverage across app/: `pytest --cov=app --cov-report=term-missing`

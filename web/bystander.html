@@ -40,6 +40,21 @@
 
 <main class="pane bystander" id="main">
 
+  <!--
+    A11Y — THE PAGE HEADING.
+    This document previously began at <h2>, so it had no top-level heading at
+    all: a screen reader user landing here from a hail had no announcement of
+    what the page IS, and the heading outline started one level down.
+
+    It is visually hidden rather than drawn, and that is the deliberate part.
+    Everything about this page's design says the reassurance sentence and the
+    911 button come first with nothing above them — a visible title bar would
+    be exactly the branding-before-help this surface refuses to show. The
+    heading exists for the outline and the announcement; the visual hierarchy
+    is unchanged.
+  -->
+  <h1 class="visually-hidden">Overdose response — what to do right now</h1>
+
   <!-- ------------------------------------------------------------------ 1 -
        REASSURANCE FIRST. Nothing above this. No branding, no navigation, no
        sign-in prompt — a bystander must not see anything that looks like a
@@ -47,13 +62,36 @@
        -------------------------------------------------------------------- -->
   <section class="samaritan stack" aria-labelledby="sam-h">
     <p class="label" id="sam-h">Read this first</p>
+    <!--
+      WHAT THIS SAYS AND WHY IT IS PHRASED THIS WAY.
+
+      This previously read "You will not be arrested for calling 911" and stated
+      that the caller and the overdosing person are protected from possession
+      charges. That was a blanket legal guarantee, made in our own voice, that
+      bypassed the deliberately cautious state-by-state dataset in
+      data/legal/good_samaritan.json — where every single record is currently
+      verified:false, and where coverage genuinely differs between states
+      (Texas, for instance, is materially narrower than Kentucky).
+
+      Promising immunity we have not verified is the worst thing this product
+      could do: someone acts on it, and the promise turns out not to hold in
+      their state or their circumstances.
+
+      So the unconditional line is now the one thing that is unconditionally
+      true everywhere — call, and stay. Everything specific about legal
+      protection is loaded from the dataset by bystander.js, labelled with the
+      state it applies to, and marked unverified where it has not been checked
+      against the current statute by a human.
+    -->
     <p class="samaritan__headline">
-      You will not be arrested for calling 911 to save someone's life.
+      Call 911 and stay with them.
     </p>
     <p class="prose" style="font-family: var(--font-voice); font-size: var(--step-1); color: var(--ink);">
-      Your state's Good Samaritan law protects the person who calls and the person
-      who overdosed from drug-possession charges. Calling is the right thing to do
-      and it is the safe thing to do. Stay with them.
+      Fear of arrest is the most common reason people do not call — and most US
+      states have laws that protect someone who calls for help during an
+      overdose. Protection varies by state and usually depends on calling in
+      good faith and staying at the scene. Whatever the law where you are,
+      calling is the right thing to do.
     </p>
 
   </section>

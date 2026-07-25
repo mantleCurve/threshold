@@ -65,6 +65,61 @@ const TIER_NAMES = [
 /** Current tier, mirrored from the server. Never computed locally. */
 let currentTier = 0;
 
+/** Last tier announced to assistive tech, so a repaint never repeats it. */
+let lastAnnouncedTier = -1;
+
+/** True while the Tier 4/5 takeover owns the screen. Guards entry/exit work so
+ *  a 4->5 transition does not re-run it and clobber the saved focus. */
+let emergencyActive = false;
+
+/** Where focus was before the takeover appeared, restored on rescind. */
+let focusBeforeTakeover = null;
+
+/**
+ * Keep Tab inside the emergency dialog.
+ *
+ * `inert` on .shell already removes everything behind the overlay from the tab
+ * order, which handles the interior of the page. This closes the remaining gap:
+ * Tab from the last control in the dialog otherwise escapes to the browser
+ * chrome (address bar, tab strip) and the next Tab returns to the top of the
+ * document — so a keyboard user in an emergency can walk off the one screen
+ * that matters. Registered once at boot; it no-ops unless the takeover is up.
+ */
+function initFocusTrap() {
+  const takeover = document.getElementById('takeover');
+  if (!takeover) return;
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !emergencyActive || takeover.hidden) return;
+
+    // Queried on every press rather than cached: the rescind button is removed
+    // by CSS at Tier 5, so the set of focusable controls genuinely changes
+    // while the dialog is open.
+    const focusable = Array.from(
+      takeover.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+    ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    // Focus sitting outside the dialog entirely (page just took over, or an
+    // extension moved it) — pull it back rather than letting Tab walk away.
+    if (!takeover.contains(document.activeElement)) {
+      e.preventDefault();
+      first.focus();
+      return;
+    }
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 /**
  * Apply a tier to the whole document.
  *
@@ -95,23 +150,100 @@ function renderTier(tier, reason) {
     el.setAttribute('aria-current', step === tier ? 'step' : 'false');
   });
 
+  // The demo tier buttons ship aria-pressed in the markup and nothing ever
+  // updated it, so button "0" announced itself as pressed at every tier while
+  // the accent highlight (keyed off the same attribute in pages.css) stayed
+  // stuck on zero. The control looked broken to a sighted evaluator and lied
+  // to a screen reader.
+  document.querySelectorAll('[data-set-tier]').forEach((el) => {
+    el.setAttribute('aria-pressed', String(Number(el.dataset.setTier) === tier));
+  });
+
   // Tier 4/5 replace the interface with a single action. The takeover is a real
   // element that is shown, not a new page: navigation during an emergency risks
   // losing the session, and the phone may be about to leave the user's hand.
+  // Announce the transition once, and only when it actually changed. The
+  // markup ships #tier-announcer for exactly this and nothing ever wrote to
+  // it, so a screen reader user got no notification that the tier had moved —
+  // including into an emergency.
+  if (tier !== lastAnnouncedTier) {
+    lastAnnouncedTier = tier;
+    setText('tier-announcer', `${TIER_NAMES[tier]}. ${reason || ''}`);
+  }
+  setText('tier-name', TIER_NAMES[tier]);
+  if (reason) setText('tier-reason', reason);
+
   const takeover = document.getElementById('takeover');
   if (takeover) {
     const emergency = tier >= 4;
     takeover.hidden = !emergency;
-    // aria-hidden on the rest of the page so a screen reader user in an emergency
-    // is not read the navigation before the one thing that matters.
-    document.getElementById('main')?.setAttribute('aria-hidden', String(emergency));
+
+    // A REAL focus trap, not aria-hidden alone.
+    //
+    // aria-hidden on #main left two holes the markup already promised were
+    // closed: the focused element could remain inside the hidden subtree
+    // (which is an accessibility error, not just untidy), and every control in
+    // the rail stayed Tab-reachable behind the overlay. `inert` removes the
+    // shell from focus order AND the accessibility tree in one attribute, so a
+    // keyboard or screen reader user at Tier 4 has literally one reachable
+    // control: the 911 link.
+    const shell = document.querySelector('.shell');
+    if (shell) {
+      if (emergency) {
+        shell.setAttribute('inert', '');
+        shell.setAttribute('aria-hidden', 'true');
+      } else {
+        shell.removeAttribute('inert');
+        // Removed rather than set to "false": an aria-hidden attribute present
+        // at all is a thing AT has to evaluate, and the absence of it is the
+        // unambiguous "this is normal content" signal.
+        shell.removeAttribute('aria-hidden');
+      }
+    }
+
     if (emergency) {
       setText('takeover-tier', TIER_NAMES[tier]);
       setText('takeover-reason', reason || '');
+
+      // Remember where focus was so rescind can put it back. Only captured on
+      // ENTRY to the emergency — re-reading it on a 4->5 transition would
+      // record the 911 link itself and lose the real origin.
+      if (!emergencyActive) {
+        focusBeforeTakeover =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        emergencyActive = true;
+      }
+
+      // Move focus to the call action. Without this, focus stays wherever it
+      // was — now inside an inert subtree, which strands the user entirely.
+      document.getElementById('takeover-action')?.focus();
+
       if (tier === 4) runEmergencySequence();
       // Keep the screen awake: a locked screen mid-overdose is a dead phone to a
       // bystander who picks it up. Best-effort — not supported everywhere.
       requestWakeLock();
+    } else {
+      // Leaving the emergency: stop anything still queued, or a rescinded
+      // alarm keeps speaking and hailing bystanders after being stood down.
+      clearEmergencyTimers();
+      window.speechSynthesis?.cancel();
+      const caption = document.getElementById('speech-caption');
+      if (caption) caption.hidden = true;
+
+      // Restore focus to whatever the user was on before the takeover seized
+      // the screen. A keyboard user who rescinds and lands back at the top of
+      // the document has effectively been thrown out of their place.
+      if (emergencyActive) {
+        emergencyActive = false;
+        // isConnected: the element may have been removed while the takeover was
+        // up (the chrome strip at tier 3+ display:nones a lot of the rail).
+        if (focusBeforeTakeover?.isConnected) {
+          focusBeforeTakeover.focus();
+        } else {
+          document.getElementById('rescind')?.focus();
+        }
+        focusBeforeTakeover = null;
+      }
     }
   }
 
@@ -146,16 +278,31 @@ let emergencyTimers = [];
  */
 function runEmergencySequence() {
   clearEmergencyTimers();
-  const status = document.getElementById('takeover-status');
-  const say = (msg) => { if (status) status.textContent = msg; speak(msg); };
+
+  // Speak, and caption it on screen. The caption is a separate region from the
+  // receipt list: spoken guidance is what to DO right now, the receipt list is
+  // what has already happened. Writing speech into the receipt list (which this
+  // previously did via textContent) both destroyed the receipts and made
+  // instructions look like completed actions.
+  const say = (msg) => { captionSpeech(msg); speak(msg); };
 
   // t=0 — calm, short, no questions yet. Naloxone offered simultaneously.
-  say('Stay with me. Help is coming. If you have Narcan, use it now.');
+  // "Help is coming" was a promise this software cannot keep — it dispatches
+  // nothing. Someone who believes an ambulance is already on its way may wait
+  // instead of pressing the button. The line must stay calm, but it has to put
+  // the action back in the hands of whoever is holding the phone.
+  say('Stay with me. Press the big button to call 911. If you have Narcan, use it now.');
 
-  // t=5s — do not wait for a reply. Begin autonomous escalation.
+  // t=5s — do not wait for a reply. Continue without user input.
+  //
+  // The spoken line said "contacting your people now", which was false: this
+  // build sends no SMS, places no call, and pushes to no device. What actually
+  // happens is that the alert appears on any caregiver screen already open to
+  // /caregiver. Saying more than that would let someone stand down and wait.
   emergencyTimers.push(setTimeout(() => {
-    say('Getting your location and contacting your people now.');
+    say('Finding your location to read out. Anyone watching on the caregiver screen can see this now.');
     acquireLocation();
+    addStatusLine('Alert shown on caregiver screens that are currently open');
     post('/api/sensor', { silent_seconds: 5, still: true }).catch(() => {});
   }, 5000));
 
@@ -175,6 +322,40 @@ function clearEmergencyTimers() {
 }
 
 /**
+ * Show on screen whatever the app just said out loud.
+ *
+ * Deaf and hard-of-hearing users must receive identical guidance. In the
+ * emergency flow the spoken lines ARE the instructions, so speech-only delivery
+ * would mean a whole class of users gets a red screen with no direction at all.
+ * aria-live=assertive because this interrupts by design at Tier 4.
+ */
+function captionSpeech(text) {
+  const el = document.getElementById('speech-caption');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = false;
+}
+
+/**
+ * Append a line to the emergency status list — AFTER the thing actually happened.
+ *
+ * This is the execution receipt, and it is deliberately separate from the list
+ * of *planned* actions the triage engine returns. Planned and completed are not
+ * the same thing, and conflating them is what produced "Contacts called" on a
+ * screen belonging to software that has never called anyone.
+ *
+ * Rule for anything added here: if you cannot point at the line of code that
+ * performed the action and succeeded, it does not get written.
+ */
+function addStatusLine(text) {
+  const host = document.getElementById('takeover-status');
+  if (!host) return;
+  const li = document.createElement('li');
+  li.textContent = text;
+  host.appendChild(li);
+}
+
+/**
  * Broadcast a hail through the speaker for anyone in earshot.
  *
  * The single most useful thing a phone can do for an unconscious person is make
@@ -185,6 +366,10 @@ function hailBystander() {
   const msg =
     'This phone belongs to someone who may be overdosing. ' +
     'If you can hear this, tap the screen.';
+  // Captioned as well as shouted. A deaf bystander who picks up the phone gets
+  // the same sentence — and this is the one line on the screen addressed to
+  // them rather than to the phone's owner.
+  captionSpeech(msg);
   speak(msg, { loud: true });
   const btn = document.getElementById('arm-bystander');
   if (btn) btn.hidden = false;
@@ -202,8 +387,12 @@ function acquireLocation() {
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const { latitude, longitude } = pos.coords;
-      setText('takeover-status',
-        `Location acquired: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+      // Appended, not written over the list, and phrased as what it is:
+      // coordinates displayed on THIS device for someone to read aloud to a
+      // dispatcher. Nothing transmits them anywhere.
+      addStatusLine(
+        `Location shown here to read aloud: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+      );
     },
     () => { /* Denied or unavailable — the address from the profile still stands. */ },
     { enableHighAccuracy: true, timeout: 8000 }
@@ -225,6 +414,19 @@ async function requestWakeLock() {
  * Deliberately slower and lower-pitched than the default: the listener may be
  * intoxicated, panicking, or both. We never claim to be a person (PRD P5) — the
  * copy passed in here always refers to the system as the system.
+ *
+ * SPEECH IS NEVER THE ONLY CHANNEL. Every call site pairs this with visible
+ * text: the emergency and 911-script lines go through captionSpeech(), replies
+ * and grounding steps and the legal brief are already rendered on screen before
+ * they are spoken. A deaf or hard-of-hearing user must receive identical
+ * guidance, and in the emergency flow the spoken lines ARE the instructions —
+ * speech-only delivery there would leave a whole class of users with a red
+ * screen and no direction. If you add a speak() call, add its visible half.
+ *
+ * Deliberately NOT captioned automatically inside this function: the caption
+ * region lives in the takeover, so writing to it from an ordinary Tier 0 reply
+ * would push text into a hidden emergency surface rather than the transcript
+ * the user is actually reading.
  */
 function speak(text, { loud = false } = {}) {
   if (!('speechSynthesis' in window) || !text) return;
@@ -252,7 +454,10 @@ let listening = false;
  * (PRD §15 Q1). Opt-in always-on is a roadmap item, not a default.
  */
 function initVoice() {
-  const btn = document.getElementById('ptt');
+  // The markup calls this button `talk` (index.html). This looked for `ptt`
+  // and returned early on null, so speech recognition was NEVER wired and
+  // the product's primary interaction did nothing at all.
+  const btn = document.getElementById('talk');
   const label = document.getElementById('ptt-label');
   if (!btn) return;
 
@@ -276,15 +481,46 @@ function initVoice() {
     if (e.results[e.results.length - 1].isFinal) sendUtterance(text);
   });
 
+  /**
+   * Write the recording state to every channel at once.
+   *
+   * There are three, and they must never disagree:
+   *   aria-pressed  what a screen reader announces
+   *   data-state    what CSS hooks (and what pages.css actually styles is
+   *                 [aria-pressed="true"], so this alone changed nothing visible)
+   *   label text    what a sighted user reads
+   *
+   * Before this, only data-state was written: the button was announced as
+   * "not pressed" for the entire time it was recording, and the pulsing ring —
+   * keyed off aria-pressed in pages.css — never appeared.
+   */
+  const meter = document.getElementById('ptt-meter');
+
+  const setRecording = (on) => {
+    listening = on;
+    btn.setAttribute('aria-pressed', String(on));
+    btn.dataset.state = on ? 'listening' : 'idle';
+
+    // The meter bar sat at --level: 0 permanently because nothing wrote to it.
+    // It is filled while recording and emptied when not, so it is a truthful
+    // "the microphone is open" indicator.
+    //
+    // DELIBERATELY NOT A REAL AMPLITUDE READING. Doing that means opening a
+    // second getUserMedia stream alongside SpeechRecognition purely to animate
+    // a decorative bar — a second microphone permission, and a second live
+    // audio capture, bought for no safety value. A bar that invented a
+    // fluctuating level would be fabricated data on a screen whose entire
+    // credibility rests on not doing that.
+    if (meter) meter.style.setProperty('--level', on ? '1' : '0');
+  };
+
   recognition.addEventListener('end', () => {
-    listening = false;
-    btn.dataset.state = 'idle';
+    setRecording(false);
     if (label && !label.textContent) label.textContent = 'Hold to talk';
   });
 
   recognition.addEventListener('error', (e) => {
-    listening = false;
-    btn.dataset.state = 'idle';
+    setRecording(false);
     if (label) {
       label.textContent = e.error === 'not-allowed'
         ? 'Microphone blocked — type instead'
@@ -295,16 +531,48 @@ function initVoice() {
 
   const start = () => {
     if (listening) return;
-    listening = true;
-    btn.dataset.state = 'listening';
+    setRecording(true);
     if (label) label.textContent = 'Listening…';
     try { recognition.start(); } catch { /* already started */ }
   };
-  const stop = () => { if (listening) { try { recognition.stop(); } catch {} } };
 
-  btn.addEventListener('pointerdown', start);
+  /**
+   * Stop recording.
+   *
+   * The ARIA and visual state are cleared HERE rather than waiting for the
+   * recognition 'end' event, because 'end' is not guaranteed to fire — a
+   * browser that never started the engine, or one that swallows the stop, would
+   * leave the button announced as pressed and visibly pulsing forever. The
+   * 'end' handler clearing it a second time is harmless and idempotent.
+   */
+  const stop = () => {
+    if (!listening) return;
+    setRecording(false);
+    if (label) label.textContent = 'Hold to talk';
+    try { recognition.stop(); } catch { /* never started */ }
+  };
+
+  btn.addEventListener('pointerdown', (e) => {
+    // Capture the pointer so a finger that slides off the circle still delivers
+    // its pointerup here. Without capture the browser retargets the release to
+    // whatever is under the finger and we never hear about it — which is one of
+    // the two ways this control could stick in the recording state.
+    try { btn.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+    start();
+  });
   btn.addEventListener('pointerup', stop);
-  btn.addEventListener('pointerleave', stop);
+
+  // The other stuck-on path. pointercancel fires when the OS takes the gesture
+  // away — a scroll takes over, a call arrives, the browser decides this is a
+  // pan. No pointerup ever follows, so without this the microphone stays open
+  // with the button claiming to be pressed. lostpointercapture is the belt to
+  // that braces: whatever the reason capture ended, recording ends with it.
+  btn.addEventListener('pointercancel', stop);
+  btn.addEventListener('lostpointercapture', stop);
+
+  // Releasing outside the window (drag off the tab, alt-tab mid-press) also
+  // never produces a pointerup on the button.
+  window.addEventListener('blur', stop);
 
   // Keyboard equivalent. A press-and-hold control that only works with a mouse
   // excludes keyboard and switch users from the product's primary interaction.
@@ -314,26 +582,40 @@ function initVoice() {
   btn.addEventListener('keyup', (e) => {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stop(); }
   });
+  // A keyboard user who tabs away mid-hold never sends the keyup.
+  btn.addEventListener('blur', stop);
 }
 
-/** Typed input as an accessibility and no-support fallback. */
-function enableTypedFallback() {
-  if (document.getElementById('typed-fallback')) return;
-  const host = document.getElementById('ptt')?.parentElement;
-  if (!host) return;
+/**
+ * Wire the always-visible typed form.
+ *
+ * index.html ships a real #utterance-form. It previously had NO submit listener
+ * anywhere in the codebase — the only typed handler was built inside the speech
+ * fallback, which itself never ran because of the ID bug above. So typing a
+ * message and pressing Send did nothing.
+ *
+ * This is wired UNCONDITIONALLY at boot, not only when speech is unavailable.
+ * Zero-typing is the goal, not a prohibition: someone who cannot speak out loud
+ * because another person is in the room must always be able to reach the system.
+ */
+function initTypedInput() {
+  const form = document.getElementById('utterance-form');
+  if (!form) return;
 
-  const form = document.createElement('form');
-  form.id = 'typed-fallback';
-  form.innerHTML = `
-    <label class="label" for="typed-input">Type what you would have said</label>
-    <input id="typed-input" name="text" type="text" autocomplete="off"
-           placeholder="I'm having a hard night">`;
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = form.querySelector('input');
-    if (input.value.trim()) { sendUtterance(input.value.trim()); input.value = ''; }
+    const input = document.getElementById('utterance');
+    const text = (input?.value || '').trim();
+    if (!text) return;
+    input.value = '';
+    sendUtterance(text);
   });
-  host.appendChild(form);
+}
+
+/** Tell the user speech is unavailable. The typed form is already present. */
+function enableTypedFallback() {
+  const label = document.getElementById('ptt-label');
+  if (label) label.textContent = 'Voice unavailable — type below';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -394,6 +676,18 @@ function addTurn(who, text, live) {
   }
   host.appendChild(el);
   host.scrollTop = host.scrollHeight;
+
+  // The header badge tracks the most recent reply's provenance. It ships
+  // hidden and nothing ever revealed it, so the "live" indicator the markup
+  // provides was permanently invisible.
+  if (who === 'threshold' && live !== undefined) {
+    const badge = document.getElementById('generation-badge');
+    if (badge) {
+      badge.hidden = false;
+      badge.textContent = live ? 'live' : 'offline fallback';
+      badge.classList.toggle('unverified', live === false);
+    }
+  }
 }
 
 /** A short machine-voice note explaining what the system just did and why. */
@@ -437,18 +731,106 @@ function escapeHtml(s) {
 
 async function loadScript911() {
   const gen = await api('/api/script/911');
-  renderGeneration('script-911', gen);
+  // #harm-panel, not #script-911 — the latter is not in the markup, so this
+  // rendered into nothing and the script never appeared on screen.
+  renderGeneration('harm-panel', gen);
+  const host = document.getElementById('harm-panel');
+  if (host) host.hidden = false;
+
   // Read it aloud one line at a time, pausing between: under acute stress a
   // paragraph is unusable, but a single line can be repeated to a dispatcher.
+  // Captioned as well as spoken — a deaf user reading a dispatcher script needs
+  // to know which line is being read now, not just that a wall of text exists.
   if (gen?.text) gen.text.split('\n').filter(Boolean).forEach((line, i) => {
-    setTimeout(() => speak(line), i * 3500);
+    setTimeout(() => { captionSpeech(line); speak(line); }, i * 3500);
   });
 }
 
 async function loadTolerance() {
   const gen = await api('/api/tolerance');
-  renderGeneration('tolerance-msg', gen);
+
+  // The markup's tolerance surface is #tolerance-card / #tolerance-text /
+  // #tolerance-badge. This wrote to #tolerance-msg, which does not exist, so
+  // the Tolerance Guard — the product's lead prevention feature — never
+  // appeared on the page at all.
+  const card = document.getElementById('tolerance-card');
+  const text = document.getElementById('tolerance-text');
+  const badge = document.getElementById('tolerance-badge');
+  if (!card || !text) return gen;
+
+  if (!gen?.text) {
+    // No message and no card, rather than an empty accented box implying
+    // something was said. If there is an error worth showing, the system
+    // notice carries it.
+    if (gen?.error) addSystemNote(gen.error);
+    return gen;
+  }
+
+  text.textContent = gen.text;
+  if (badge) {
+    // Contract rule 2: a fallback is labelled a fallback, always.
+    badge.textContent = gen.live ? 'live' : 'offline fallback';
+    badge.classList.toggle('unverified', gen.live === false);
+  }
+  card.hidden = false;
   return gen;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Grounding (Tier 2)                                                          */
+/* -------------------------------------------------------------------------- */
+
+/*
+  5-4-3-2-1 sensory grounding. This is a standard, authored clinical exercise,
+  NOT model output — same reasoning as the Good Samaritan dataset: the value is
+  that the wording is fixed and correct, and there is nothing here a language
+  model could improve. It is therefore not labelled as a generation, because it
+  is not one.
+
+  It runs entirely client-side so it keeps working with the network down, which
+  is exactly the moment a craving does not pause to wait for a server.
+*/
+const GROUNDING_STEPS = [
+  'Look around and name five things you can see.',
+  'Name four things you can feel. The floor, your sleeve, the air.',
+  'Name three things you can hear.',
+  'Name two things you can smell.',
+  'Name one thing you can taste.',
+  'That is the whole exercise. The urge has already started coming down.',
+];
+
+/** Timers for the grounding sequence, so a second press cannot double-run it. */
+let groundingTimers = [];
+
+/**
+ * Run the grounding sequence in the support panel.
+ *
+ * One step at a time with a visible position count, spoken and captioned
+ * together. Re-pressing the button restarts it cleanly rather than layering a
+ * second sequence over the first.
+ */
+function startGrounding() {
+  groundingTimers.forEach(clearTimeout);
+  groundingTimers = [];
+  window.speechSynthesis?.cancel();
+
+  const host = document.getElementById('support-panel');
+  if (!host) return;
+  host.hidden = false;
+
+  const render = (i) => {
+    host.innerHTML = `
+      <p class="label">Grounding · step ${i + 1} of ${GROUNDING_STEPS.length}</p>
+      <p class="lede">${escapeHtml(GROUNDING_STEPS[i])}</p>`;
+    speak(GROUNDING_STEPS[i]);
+  };
+
+  render(0);
+  // 12 seconds a step: long enough to actually look around and name five
+  // things, which is the entire mechanism. Rushing it makes it decorative.
+  GROUNDING_STEPS.slice(1).forEach((_, n) => {
+    groundingTimers.push(setTimeout(() => render(n + 1), (n + 1) * 12000));
+  });
 }
 
 async function loadVaultClip(context) {
@@ -524,12 +906,44 @@ function initControls() {
     addSystemNote(res.reason);
   });
 
+  // ---- Tier 3 "If you are using" row ------------------------------------
+  // All three render into #harm-panel, the one card that actually exists in
+  // that section. The previous code targeted #samaritan-panel and #script-911,
+  // neither of which is in the markup, so renderGeneration() found no element
+  // and returned silently: the buttons appeared to do nothing at all.
   document.getElementById('show-samaritan')?.addEventListener('click', loadSamaritan);
-  document.getElementById('show-refusal')?.addEventListener('click', async () => {
-    renderGeneration('refusal-panel', await api('/api/script/refusal'));
+
+  // "The words to say to 911" had no handler whatsoever. It is the single most
+  // important control at Tier 3 — the script is the whole point of PRD §6.1 —
+  // and pressing it did nothing.
+  document.getElementById('show-911')?.addEventListener('click', async () => {
+    const host = document.getElementById('harm-panel');
+    if (host) {
+      host.hidden = false;
+      host.innerHTML = '<p class="prose">Writing your script…</p>';
+    }
+    await loadScript911();
   });
-  document.getElementById('play-vault')?.addEventListener('click', () => loadVaultClip(''));
+
   document.getElementById('arm-bystander')?.addEventListener('click', openBystander);
+
+  // ---- Tier 2/3 "Right now" row -----------------------------------------
+  document.getElementById('play-vault')?.addEventListener('click', () => loadVaultClip(''));
+
+  document.getElementById('show-refusal')?.addEventListener('click', async () => {
+    const host = document.getElementById('support-panel');
+    if (host) {
+      host.hidden = false;
+      host.innerHTML = '<p class="prose">Finding your words…</p>';
+    }
+    // #refusal-panel does not exist in index.html either. Same silent failure.
+    renderGeneration('support-panel', await api('/api/script/refusal'));
+  });
+
+  // "Ground me" had no handler. The deterministic engine already emits a
+  // start_grounding action at Tier 2 (app/triage.py), so the button was
+  // promising something the backend had genuinely decided to offer.
+  document.getElementById('start-grounding')?.addEventListener('click', startGrounding);
 
   document.getElementById('reset-demo')?.addEventListener('click', async () => {
     await post('/api/reset');
@@ -552,10 +966,24 @@ function initControls() {
  */
 async function loadSamaritan() {
   const state = document.body.dataset.state || 'KY';
-  const rec = await api(`/api/legal/${state}`);
-  const host = document.getElementById('samaritan-panel');
+  // #harm-panel: the section this button lives in. #samaritan-panel was never
+  // in the markup, so this returned at the null check and the button was dead.
+  const host = document.getElementById('harm-panel');
   if (!host) return;
   host.hidden = false;
+  host.innerHTML = '<p class="prose">Checking your state\'s law…</p>';
+
+  let rec;
+  try {
+    rec = await api(`/api/legal/${state}`);
+  } catch {
+    // Never leave a legal question showing a spinner. The reassurance below is
+    // reviewed copy that holds in every state with a Good Samaritan law.
+    host.innerHTML =
+      '<p class="prose"><span class="unverified">could not load your state\'s statute</span> ' +
+      'Calling 911 for an overdose is still the right thing to do.</p>';
+    return;
+  }
 
   if (rec.unknown) {
     host.innerHTML = `<p class="prose">${escapeHtml(rec.summary)}</p>`;
@@ -577,6 +1005,8 @@ async function loadSamaritan() {
 async function boot() {
   initControls();
   initVoice();
+  initTypedInput();
+  initFocusTrap();
   initStream();
 
   let state;
@@ -598,7 +1028,7 @@ async function boot() {
     ai.dataset.tone = state.ai_online ? 'ok' : 'warn';
   }
 
-  renderStats(state.profile);
+  renderStats(state.profile, state.events);
   renderLog(state.events);
 
   // Tolerance Guard fires unprompted on a day when nothing is wrong. This is the
@@ -608,7 +1038,7 @@ async function boot() {
   if (gen?.window_active && gen.text) speak(gen.text);
 }
 
-function renderStats(profile) {
+function renderStats(profile, events) {
   if (!profile) return;
   setText('stat-naloxone', profile.naloxone_on_hand ? 'Within reach' : 'Not on hand');
   setText('stat-contacts', String(profile.contacts?.length ?? 0));
@@ -618,6 +1048,12 @@ function renderStats(profile) {
     const days = Math.floor((Date.now() - new Date(ev.date)) / 86400000);
     setText('stat-tolerance', `Day ${days}`);
   }
+
+  // #stat-checkin was in the markup showing a permanent em-dash because nothing
+  // ever wrote to it. The last event IS the last check-in — there is no
+  // separate record — so it is derived rather than invented.
+  const last = events?.length ? events[events.length - 1] : null;
+  setText('stat-checkin', last ? new Date(last.at).toLocaleTimeString() : 'No check-ins yet');
 }
 
 /** Render the event log. Every event is user-visible; nothing is filtered here. */

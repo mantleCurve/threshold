@@ -891,3 +891,155 @@ def test_caregiver_brief_includes_the_craft_grounded_do_not_section():
     assert "no response for 20 seconds" in user
     # And the tier is never named to the model.
     assert "tier" not in user.lower()
+
+
+# --------------------------------------------------------------------------------------
+# Caregiver brief — prompt compression and data minimisation
+#
+# g_s.md Efficiency #3 asked for compressed event summaries and stripped profile fields.
+# The efficiency win is real but secondary; the primary win is that less personal data
+# about a person in crisis leaves this machine. These tests assert the *absence* of
+# fields, which is the only way an omission stays deliberate rather than drifting back.
+# --------------------------------------------------------------------------------------
+
+
+def _brief_events(count: int, *, reason: str = "stillness detected") -> list[Event]:
+    """Build `count` identical-shaped events one minute apart, oldest first."""
+    return [
+        Event(
+            id=f"e{i}",
+            user_id="u-secret-identifier",
+            at=datetime(2026, 7, 25, 3, 10 + i, tzinfo=timezone.utc),
+            tier=Tier.EMERGENCY,
+            trigger_source="sensor",
+            reason=reason,
+            actions_taken=["show_911_script"],
+        )
+        for i in range(count)
+    ]
+
+
+def test_caregiver_brief_never_sends_substances(profile):
+    """The most sensitive field on the record, and the prompt forbids naming it anyway.
+
+    The system prompt's rule 1 is "never name a condition or dependency status", so the
+    model has no legitimate use for this list. It was previously transmitted on every
+    brief for nothing.
+    """
+    from app.prompts import caregiver_brief
+
+    system, user = caregiver_brief.build(profile, Tier.EMERGENCY, _brief_events(2))
+    combined = system + user
+    for substance in profile.substances:
+        assert substance not in combined, f"substance {substance!r} sent unnecessarily"
+
+
+def test_caregiver_brief_sends_only_a_first_name(profile):
+    """A surname reads as institutional in prose meant to sound like a person."""
+    from app.prompts import caregiver_brief
+
+    _, user = caregiver_brief.build(profile, Tier.EMERGENCY, _brief_events(1))
+    first, _, surname = profile.name.partition(" ")
+    assert first in user
+    if surname:
+        assert surname not in user
+
+
+def test_caregiver_brief_never_sends_internal_identifiers(profile):
+    """Event ids and user ids cannot appear in the output, so they must not be sent."""
+    from app.prompts import caregiver_brief
+
+    events = _brief_events(3)
+    _, user = caregiver_brief.build(profile, Tier.EMERGENCY, events)
+
+    assert "u-secret-identifier" not in user
+    for event in events:
+        assert event.id not in user
+
+
+def test_caregiver_brief_sends_clock_times_not_full_dates(profile):
+    """"3:12" is what makes the brief read as tonight; the date adds only tokens."""
+    from app.prompts import caregiver_brief
+
+    _, user = caregiver_brief.build(profile, Tier.EMERGENCY, _brief_events(1))
+    assert "03:10" in user
+    assert "2026" not in user
+
+
+def test_caregiver_brief_collapses_repeated_sensor_readings(profile):
+    """Repetition costs tokens AND misleads: the model reads it as emphasis.
+
+    Six identical stillness readings become one line with a time span, which is both
+    cheaper and a more accurate description of what happened.
+    """
+    from app.prompts import caregiver_brief
+
+    _, user = caregiver_brief.build(profile, Tier.EMERGENCY, _brief_events(6))
+    event_lines = [ln for ln in user.splitlines() if ln.startswith("- 0")]
+
+    assert len(event_lines) == 1, f"repeats were not collapsed: {event_lines}"
+    assert "03:10-03:15" in event_lines[0]
+
+
+def test_caregiver_brief_keeps_distinct_events_separate(profile):
+    """Collapsing must never merge two genuinely different things that happened."""
+    from app.prompts import caregiver_brief
+
+    events = _brief_events(2, reason="stillness detected") + _brief_events(
+        1, reason="said they took something"
+    )
+    _, user = caregiver_brief.build(profile, Tier.EMERGENCY, events)
+    event_lines = [ln for ln in user.splitlines() if ln.startswith("- 0")]
+
+    assert len(event_lines) == 2
+    assert "stillness detected" in user
+    assert "said they took something" in user
+
+
+def test_caregiver_brief_bounds_the_number_of_events_sent(profile):
+    """A caregiver at 3am needs tonight's shape, not a session history."""
+    from app.prompts import caregiver_brief
+
+    # Distinct reasons so nothing collapses and the bound itself is what is tested.
+    events = [
+        Event(
+            id=f"e{i}",
+            user_id="u",
+            at=datetime(2026, 7, 25, 1, i, tzinfo=timezone.utc),
+            tier=Tier.CRAVING,
+            trigger_source="utterance",
+            reason=f"distinct reason {i}",
+            actions_taken=[],
+        )
+        for i in range(30)
+    ]
+    _, user = caregiver_brief.build(profile, Tier.CRAVING, events)
+    event_lines = [ln for ln in user.splitlines() if ln.startswith("- 0")]
+
+    assert len(event_lines) == caregiver_brief._DEFAULT_MAX_EVENTS
+    # It is the *tail* that is kept — the most recent transitions, not the oldest.
+    assert "distinct reason 29" in user
+    assert "distinct reason 0 " not in user
+
+
+def test_caregiver_brief_still_carries_what_it_actually_needs(profile):
+    """Minimisation must not strip the fields the brief is built on."""
+    from app.prompts import caregiver_brief
+
+    _, user = caregiver_brief.build(
+        profile, Tier.EMERGENCY, _brief_events(1), reason="no response for 20 seconds"
+    )
+
+    assert "no response for 20 seconds" in user  # the deterministic reason
+    assert "Naloxone in the home" in user  # changes the next-60-seconds advice
+    assert "show_911_script" in user  # the recorded action
+    assert "tier" not in user.lower()  # PRD P4: still never named to the model
+
+
+def test_caregiver_brief_handles_an_empty_log_without_an_empty_slot(profile):
+    """An empty slot in the template reads as a formatting bug and invites invention."""
+    from app.prompts import caregiver_brief
+
+    _, user = caregiver_brief.build(profile, Tier.BASELINE, [])
+    assert "(no events recorded)" in user
+    assert "(no reason recorded)" in user

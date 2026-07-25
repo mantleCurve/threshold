@@ -200,11 +200,10 @@ def _page(name: str) -> FileResponse:
 # ---------------------------------------------------------------------------
 # Generative funnel
 # ---------------------------------------------------------------------------
-# Every generative endpoint makes a real API call to Google Gemini via OpenRouter.
-# When the call fails, the response carries live=False plus a populated error, and the
-# UI shows that state explicitly. A fallback never masquerades as a fresh generation —
-# that would be dishonest to the user and an automatic disqualifier under the judging
-# rules.
+# Single choke point for AI calls, so the honesty rule is enforced in exactly one
+# place: a failed call comes back live=False with a populated error rather than as
+# canned text wearing a fresh generation's clothes. See app/routes/generate.py for the
+# endpoints that use it.
 async def _generate(builder, *, fast: bool, **kwargs) -> dict:
     """Run one prompt module through the generative layer.
 

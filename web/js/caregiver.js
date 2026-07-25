@@ -376,7 +376,7 @@ function renderNotToSay(text) {
  * Human labels for the Action kinds in app/models.py.
  *
  * Kept as a lookup rather than shown raw: "fire_contact_tree" is a schema name,
- * and a caregiver at 3am should read "Started calling your contact list, in
+ * and a caregiver at 3am must read only what actually happened, not what
  * order". Anything not in this map falls back to the raw kind rather than being
  * dropped — a silently omitted action is the one that gets duplicated.
  */
@@ -384,7 +384,10 @@ const ACTION_LABELS = {
   speak: 'Spoke to them out loud',
   play_vault_clip: 'Played a recorded message from someone they trust',
   offer_contact: 'Offered to reach one of their people',
-  fire_contact_tree: 'Started calling the contact list, in order',
+  // NOT 'started calling' — this build places no calls and sends no messages.
+  // A caregiver who believes the contact list was called may assume someone
+  // else is already on the way and delay acting themselves.
+  fire_contact_tree: 'Contact list displayed on their screen — not called',
   show_911_script: 'Put their personalised 911 script on screen',
   show_good_samaritan: 'Showed the Good Samaritan protection for their state',
   naloxone_prompt: 'Told them to use naloxone now',
@@ -400,7 +403,7 @@ const ACTION_LABELS = {
  * Render the deterministic record of what the system already did.
  *
  * Placed before the instructions in the markup on purpose: a caregiver who does
- * not know 911 was already called will call it again and lose ninety seconds.
+ * does not know whether 911 was called must be told to call it themselves.
  * Sourced from the event log rather than from the generation — this section is
  * a claim about what happened, and only the record can make that claim
  * (CONTRACT: the model does language work only).

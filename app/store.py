@@ -225,16 +225,47 @@ CREATE TABLE IF NOT EXISTS tolerance_events (
 );
 CREATE INDEX IF NOT EXISTS idx_tolerance_profile ON tolerance_events(profile_id, date);
 
+-- The consented caregiver relationship. THIS TABLE IS THE PRIVACY BOUNDARY.
+--
+-- PRD §8 gives a caregiver a view of one specific person, and PRD §4.2 makes
+-- that view a thing the watched person consents to rather than a thing a
+-- caregiver claims. Before this table existed the server had no idea which
+-- account a caregiver was allowed to see, so `/api/state` fell back to the
+-- caller's own id and the SSE stream shipped every user's events to every
+-- listener with the *client* deciding what to show. Client-side filtering is
+-- not a privacy boundary; it is a rendering preference. This row is the
+-- boundary, and every caregiver-facing read resolves through it.
+--
+-- `consented_at` is NOT NULL because a link with no recorded consent is a link
+-- that should not exist: the column's presence is what lets us say honestly
+-- that nobody is watched without having agreed to it.
+CREATE TABLE IF NOT EXISTS caregiver_links (
+    caregiver_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    watched_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    consented_at      TEXT NOT NULL,   -- ISO-8601, when the watched user agreed
+    PRIMARY KEY (caregiver_user_id, watched_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_links_watched
+    ON caregiver_links(watched_user_id);
+
 -- Recorded caregiver messages. `transcript` is real text spoken by a real
 -- person; the model may only SELECT among these clips, never write one.
+--
+-- `owner_user_id` is the account whose vault this clip belongs to — the person
+-- it is played TO, not the person who spoke it. It exists so that account
+-- deletion can honour what /data-deletion promises ("Memory Vault recordings
+-- and transcripts linked to your account"). It is nullable so that a clip with
+-- no owner is a shared demo fixture rather than a row that fails to insert.
 CREATE TABLE IF NOT EXISTS vault_clips (
-    id          TEXT PRIMARY KEY,
-    recorded_by TEXT NOT NULL,
-    relation    TEXT NOT NULL,
-    transcript  TEXT NOT NULL,
-    tags        TEXT NOT NULL DEFAULT '[]',
-    audio_path  TEXT   -- NULL until a real recording is attached
+    id            TEXT PRIMARY KEY,
+    recorded_by   TEXT NOT NULL,
+    relation      TEXT NOT NULL,
+    transcript    TEXT NOT NULL,
+    tags          TEXT NOT NULL DEFAULT '[]',
+    audio_path    TEXT,  -- NULL until a real recording is attached
+    owner_user_id TEXT   -- NULL = unowned demo fixture; see delete_user_data()
 );
+CREATE INDEX IF NOT EXISTS idx_vault_owner ON vault_clips(owner_user_id);
 
 -- The append-only ladder log (PRD §11). `seq` gives a stable total order even
 -- when two events share a timestamp to the microsecond.
@@ -249,6 +280,26 @@ CREATE TABLE IF NOT EXISTS events (
     actions_taken  TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id, seq);
+
+-- Ownership index for the on-disk generation cache in `data/cache/`.
+--
+-- /data-deletion promises to remove "any cached generations produced for you".
+-- The cache itself is keyed by a hash of the prompt (see app/genai.py), which
+-- is not an ownership mechanism — two users with the same prompt collide, and
+-- nothing in the filename says whose address is inside. This table records the
+-- association so deletion can be complete rather than approximate. The cached
+-- 911 script contains a home address and a door entry code, so "approximately
+-- deleted" is not an acceptable state to leave a person in.
+--
+-- The store deliberately still knows nothing about the model layer: it holds
+-- opaque keys and hands them back to the caller, which owns the files.
+CREATE TABLE IF NOT EXISTS generation_cache_owners (
+    cache_key      TEXT NOT NULL,
+    owner_user_id  TEXT NOT NULL,
+    PRIMARY KEY (cache_key, owner_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cache_owner
+    ON generation_cache_owners(owner_user_id);
 
 -- PRD §11 promises the user a log nobody can quietly edit. Enforcing that with
 -- triggers rather than discipline means a future refactor physically cannot
@@ -298,6 +349,8 @@ def drop_all() -> None:
             DROP TRIGGER IF EXISTS events_no_update;
             DROP TRIGGER IF EXISTS events_no_delete;
             DROP TABLE IF EXISTS events;
+            DROP TABLE IF EXISTS generation_cache_owners;
+            DROP TABLE IF EXISTS caregiver_links;
             DROP TABLE IF EXISTS vault_clips;
             DROP TABLE IF EXISTS tolerance_events;
             DROP TABLE IF EXISTS contacts;
@@ -454,6 +507,177 @@ def list_users() -> list[UserRecord]:
     with connection() as conn:
         rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
     return [_row_to_user(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Caregiver links — the privacy boundary
+# ---------------------------------------------------------------------------
+# PRD §8: a caregiver watches one named person who agreed to be watched. Every
+# caregiver-facing read in the app resolves the watched user through these
+# functions and never through a client-supplied id, because an id in a request
+# body is a request, not a permission.
+
+
+@dataclass(frozen=True)
+class CaregiverLink:
+    """A consented watch relationship between a caregiver and a user.
+
+    Attributes:
+        caregiver_user_id: The account doing the watching (role "caregiver").
+        watched_user_id: The account being watched (role "user").
+        consented_at: When the watched user agreed. Recorded rather than
+            inferred so "who agreed to this, and when" is answerable from the
+            database alone.
+    """
+
+    caregiver_user_id: str
+    watched_user_id: str
+    consented_at: datetime
+
+
+def link_caregiver(
+    caregiver_user_id: str,
+    watched_user_id: str,
+    consented_at: datetime | None = None,
+) -> CaregiverLink:
+    """Record that a user has consented to being watched by a caregiver.
+
+    Idempotent: re-linking the same pair refreshes the consent timestamp rather
+    than raising, so a repeated onboarding step cannot 500.
+
+    Args:
+        caregiver_user_id: The watching account.
+        watched_user_id: The watched account.
+        consented_at: When consent was given. Defaults to now.
+
+    Returns:
+        The stored `CaregiverLink`.
+
+    Raises:
+        ValueError: If the two ids are the same. Self-watching would let any
+            account grant itself caregiver-shaped reads of itself, which is
+            harmless today but is exactly the sort of edge the authorization
+            checks below should never have to reason about.
+        sqlite3.IntegrityError: If either account does not exist. Foreign keys
+            are ON (see `connection`), so a link can never outlive its accounts
+            and become a dangling permission.
+    """
+    if caregiver_user_id == watched_user_id:
+        raise ValueError("An account cannot be its own caregiver.")
+    when = consented_at or datetime.now()
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO caregiver_links (caregiver_user_id, watched_user_id, consented_at)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT(caregiver_user_id, watched_user_id)"
+            " DO UPDATE SET consented_at=excluded.consented_at",
+            (caregiver_user_id, watched_user_id, when.isoformat()),
+        )
+    return CaregiverLink(caregiver_user_id, watched_user_id, when)
+
+
+def unlink_caregiver(caregiver_user_id: str, watched_user_id: str) -> bool:
+    """Revoke a watch relationship.
+
+    Consent that cannot be withdrawn is not consent. Deleting the row is the
+    whole revocation: every authorization check reads this table live, so the
+    caregiver's next request — including an already-open SSE stream's next
+    event — is refused.
+
+    Args:
+        caregiver_user_id: The watching account.
+        watched_user_id: The watched account.
+
+    Returns:
+        True if a link was removed, False if there was none.
+    """
+    with connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM caregiver_links"
+            " WHERE caregiver_user_id = ? AND watched_user_id = ?",
+            (caregiver_user_id, watched_user_id),
+        )
+    return cursor.rowcount > 0
+
+
+def watched_users(caregiver_user_id: str) -> list[str]:
+    """Every user this caregiver is permitted to see, oldest consent first.
+
+    Args:
+        caregiver_user_id: The watching account.
+
+    Returns:
+        Watched user ids. Empty for an account with no links — including for a
+        user account, which is the correct answer rather than an error: an
+        ordinary user watches nobody.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT watched_user_id FROM caregiver_links"
+            " WHERE caregiver_user_id = ? ORDER BY consented_at, watched_user_id",
+            (caregiver_user_id,),
+        ).fetchall()
+    return [r["watched_user_id"] for r in rows]
+
+
+def primary_watched_user(caregiver_user_id: str) -> str | None:
+    """The one user a caregiver surface renders, or None if there is no link.
+
+    The caregiver UI shows a single person. When several links exist the
+    earliest consent wins, deterministically, so the page cannot silently swap
+    between people between requests.
+
+    Args:
+        caregiver_user_id: The watching account.
+
+    Returns:
+        A watched user id, or None. None is the honest answer for a caregiver
+        nobody has added — the surface says so rather than falling back to some
+        other account's data, which is what it used to do.
+    """
+    users = watched_users(caregiver_user_id)
+    return users[0] if users else None
+
+
+def is_linked(caregiver_user_id: str, watched_user_id: str) -> bool:
+    """Whether this caregiver holds a consented link to this user.
+
+    The single predicate behind every caregiver authorization decision,
+    including per-recipient SSE filtering. Kept as one function so there is one
+    place to audit and no route can invent its own weaker version.
+
+    Args:
+        caregiver_user_id: The account making the request.
+        watched_user_id: The account whose data is being requested.
+
+    Returns:
+        True only if a link row exists. Fails closed on everything else.
+    """
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM caregiver_links"
+            " WHERE caregiver_user_id = ? AND watched_user_id = ?",
+            (caregiver_user_id, watched_user_id),
+        ).fetchone()
+    return row is not None
+
+
+def caregivers_for(watched_user_id: str) -> list[str]:
+    """Every caregiver permitted to see this user.
+
+    Args:
+        watched_user_id: The watched account.
+
+    Returns:
+        Caregiver account ids, oldest consent first.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT caregiver_user_id FROM caregiver_links"
+            " WHERE watched_user_id = ? ORDER BY consented_at, caregiver_user_id",
+            (watched_user_id,),
+        ).fetchall()
+    return [r["caregiver_user_id"] for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -716,7 +940,7 @@ def put_ladder(user_id: str, ladder: LadderConfig) -> LadderConfig | None:
 # ---------------------------------------------------------------------------
 
 
-def put_vault_clip(clip: VaultClip) -> VaultClip:
+def put_vault_clip(clip: VaultClip, owner_user_id: str | None = None) -> VaultClip:
     """Upsert a recorded caregiver message.
 
     Args:
@@ -725,6 +949,10 @@ def put_vault_clip(clip: VaultClip) -> VaultClip:
             authors one, because a synthesised "message from your sister" would
             be the second-worst hallucination in this product after bad legal
             text.
+        owner_user_id: The account whose vault this belongs to — the person the
+            clip is played TO. Required for anything a real user records, so
+            that account deletion can honour the /data-deletion promise. None
+            marks an unowned shared fixture.
 
     Returns:
         The stored clip.
@@ -732,12 +960,13 @@ def put_vault_clip(clip: VaultClip) -> VaultClip:
     with connection() as conn:
         conn.execute(
             """
-            INSERT INTO vault_clips (id, recorded_by, relation, transcript, tags, audio_path)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO vault_clips
+                (id, recorded_by, relation, transcript, tags, audio_path, owner_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 recorded_by=excluded.recorded_by, relation=excluded.relation,
                 transcript=excluded.transcript, tags=excluded.tags,
-                audio_path=excluded.audio_path
+                audio_path=excluded.audio_path, owner_user_id=excluded.owner_user_id
             """,
             (
                 clip.id,
@@ -746,6 +975,7 @@ def put_vault_clip(clip: VaultClip) -> VaultClip:
                 clip.transcript,
                 json.dumps(clip.tags),
                 clip.audio_path,
+                owner_user_id,
             ),
         )
     return clip
@@ -788,17 +1018,35 @@ def get_vault_clip(clip_id: str) -> VaultClip | None:
     return _row_to_clip(row) if row else None
 
 
-def list_vault_clips() -> list[VaultClip]:
-    """Return every clip in stable id order.
+def list_vault_clips(for_user: str | None = None) -> list[VaultClip]:
+    """Return clips in stable id order.
 
     Stable ordering matters: this list is what gets offered to the selection
     prompt, and a shuffling candidate list makes the demo unreproducible.
 
+    Args:
+        for_user: When given, returns only the clips this account may hear —
+            its own, plus unowned shared fixtures. Another person's recorded
+            message is not a thing to hand out: it names them, it names their
+            relationship, and it was recorded for one listener. When omitted,
+            every clip is returned, which is for administrative callers and
+            tests only.
+
     Returns:
-        All stored clips.
+        The matching clips.
     """
     with connection() as conn:
-        rows = conn.execute("SELECT * FROM vault_clips ORDER BY id").fetchall()
+        if for_user is None:
+            rows = conn.execute("SELECT * FROM vault_clips ORDER BY id").fetchall()
+        else:
+            # `IS NULL` covers the shared demo fixtures, which belong to nobody
+            # and are safe for any account to be offered.
+            rows = conn.execute(
+                "SELECT * FROM vault_clips"
+                " WHERE owner_user_id IS NULL OR owner_user_id = ?"
+                " ORDER BY id",
+                (for_user,),
+            ).fetchall()
     return [_row_to_clip(r) for r in rows]
 
 
@@ -847,7 +1095,25 @@ def append_event(event: Event) -> Event:
 
 
 def list_events(user_id: str, limit: int = 200) -> list[Event]:
-    """Return a user's ladder history, most recent first.
+    """Return the tail of a user's ladder history, NEWEST FIRST.
+
+    ORDER CONTRACT — read this before writing a consumer.
+        This function returns events newest first, and `limit` truncates the
+        OLDEST end (it is the most recent `limit` events, not the first ones).
+        That is the storage-layer order and it is deliberate: `latest_event`
+        wants element 0, and a bounded query must keep the recent tail.
+
+        The HTTP boundary publishes the OPPOSITE order. `/api/state` and
+        anything else that puts events on the wire normalises to oldest first
+        via `app.deps.events_for_wire`, and the response schema says so. Every
+        prompt and every UI consumer reads the wire order.
+
+        Two orders exist for one honest reason — SQL wants DESC to bound a
+        query, humans read a chronology forwards — and the drift between them
+        previously let the caregiver brief present the OLDEST event as the
+        current reason and narrate an incident backwards. The rule is now: one
+        conversion, at the API boundary, in one named function. If you find
+        yourself calling `reversed()` anywhere else, something is wrong.
 
     Ordered by `seq` rather than `at`, because timestamps can collide and the
     user needs to see what actually happened in what order during a fast
@@ -855,11 +1121,12 @@ def list_events(user_id: str, limit: int = 200) -> list[Event]:
 
     Args:
         user_id: Whose log to read.
-        limit: Maximum rows. Bounded by default so a long-running demo cannot
-            turn one page render into an unbounded query.
+        limit: Maximum rows, counted from the newest end. Bounded by default so
+            a long-running demo cannot turn one page render into an unbounded
+            query.
 
     Returns:
-        Events, newest first — the order the timeline UI renders.
+        Events, newest first.
     """
     with connection() as conn:
         rows = conn.execute(
@@ -878,6 +1145,80 @@ def list_events(user_id: str, limit: int = 200) -> list[Event]:
         )
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Generation cache ownership
+# ---------------------------------------------------------------------------
+# The cache files themselves live in data/cache/ and belong to `app.genai`.
+# This table records only WHOSE they are, so that deleting an account can delete
+# them. Keeping the index here rather than in the filename means the cache
+# directory leaks nothing about who a user is even to someone reading `ls`.
+
+
+def record_cache_owner(cache_key: str, owner_user_id: str) -> None:
+    """Associate a generation-cache entry with the account it was produced for.
+
+    Idempotent — the same prompt regenerated for the same person writes the same
+    row. Several users can legitimately own one key when their prompts are
+    byte-identical (two accounts with no address, say), which is why the primary
+    key is the pair: deleting one must not orphan the other's fallback.
+
+    Args:
+        cache_key: Opaque key from the generation layer. The store never parses
+            it and never learns what is inside the cached text.
+        owner_user_id: The account the generation was produced for.
+    """
+    with connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO generation_cache_owners (cache_key, owner_user_id)"
+            " VALUES (?, ?)",
+            (cache_key, owner_user_id),
+        )
+
+
+def cache_keys_for_user(user_id: str) -> list[str]:
+    """Cache keys owned by an account.
+
+    Args:
+        user_id: The account.
+
+    Returns:
+        Its cache keys, in stable order.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT cache_key FROM generation_cache_owners"
+            " WHERE owner_user_id = ? ORDER BY cache_key",
+            (user_id,),
+        ).fetchall()
+    return [r["cache_key"] for r in rows]
+
+
+def cache_keys_exclusively_owned_by(user_id: str) -> list[str]:
+    """Cache keys this account owns and nobody else does.
+
+    Only these are safe to delete from disk. A key another account also owns is
+    also that account's last-known-good fallback, and erasing it during someone
+    else's deletion would silently degrade a stranger's crisis screen.
+
+    Args:
+        user_id: The account being deleted.
+
+    Returns:
+        Keys with exactly one owner, that owner being `user_id`.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT cache_key FROM generation_cache_owners"
+            " WHERE owner_user_id = ?"
+            " AND cache_key NOT IN ("
+            "     SELECT cache_key FROM generation_cache_owners"
+            "     WHERE owner_user_id != ?"
+            " ) ORDER BY cache_key",
+            (user_id, user_id),
+        ).fetchall()
+    return [r["cache_key"] for r in rows]
 
 
 def delete_user_data(user_id: str) -> dict[str, int]:

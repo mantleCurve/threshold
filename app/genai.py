@@ -30,6 +30,29 @@ Startup without a key:
     The module imports and the app starts cleanly with no key; `ai_online()` reports
     False; and the moment the variable is exported the next call goes live with no code
     change and no restart of this module's state.
+
+Connection lifecycle:
+    `startup()` and `shutdown()` are called from the FastAPI lifespan and own one
+    pooled `httpx.AsyncClient` for the whole process. Both are safe to call with no key
+    configured. See the "Shared client lifecycle" section below for why this is not a
+    micro-optimisation.
+
+What leaves this machine (data minimisation):
+    Every prompt module states its own field list in its docstring; the summary of what
+    each task helper transmits to OpenRouter is:
+
+      - `checkin`        — first name, and the utterance text. No address, no contacts.
+      - `refusal`        — first name only, plus the caller's situation string.
+      - `tolerance`      — first name, tolerance-event kind and date. No substances.
+      - `script_911`     — name, address, unit, entry code, cross street. This is the
+                           one prompt that must carry location: it produces the words
+                           read aloud to a dispatcher.
+      - `caregiver_brief`— first name, naloxone-on-hand flag, and compressed event
+                           lines (time, tier name, reason). Substances, address, entry
+                           code, contacts, and event ids are deliberately withheld.
+      - `vault_select`   — clip ids and transcripts, plus a short context string.
+
+    Nothing sends a password, a session token, a user id, or a contact's details.
 """
 
 from __future__ import annotations
@@ -76,6 +99,15 @@ ENV_KEY: Final = "OPENROUTER_API_KEY"
 # offline, and on a crisis screen we would rather fall back fast than spin.
 TIMEOUT_FAST: Final = httpx.Timeout(connect=3.0, read=12.0, write=5.0, pool=3.0)
 TIMEOUT_DEEP: Final = httpx.Timeout(connect=3.0, read=45.0, write=5.0, pool=3.0)
+
+# Connection pool bounds for the shared client. Small on purpose: this app has a handful
+# of generative surfaces and a single-digit number of concurrent users in any realistic
+# evaluation, so a large pool would only hold idle sockets open. `keepalive_expiry` is
+# comfortably longer than a page load, which is what makes the reuse actually pay —
+# the second generation on a screen skips the TLS handshake entirely.
+POOL_LIMITS: Final = httpx.Limits(
+    max_connections=20, max_keepalive_connections=10, keepalive_expiry=30.0
+)
 
 MAX_ATTEMPTS: Final = 3  # 1 initial try + 2 retries
 BACKOFF_BASE: Final = 0.4  # seconds; doubled per attempt, plus jitter
@@ -396,6 +428,77 @@ async def _sleep_backoff(attempt: int) -> None:
 
 
 # --------------------------------------------------------------------------------------
+# Shared client lifecycle
+#
+# Why (c_s.md Efficiency P2 #2): without this, every generation built its own
+# `httpx.AsyncClient` and therefore its own TCP connection and TLS handshake. On a page
+# that warms three surfaces at once — the tolerance message, the refusal lines, the 911
+# script — that is three handshakes to the same host, paid again on every reload. One
+# pooled client turns all of them into one connection reused for the life of the process.
+#
+# The client is module-global rather than stashed on `app.state` because this module is
+# the only thing that may open a socket (CONTRACT.md), so the pool belongs to it. The API
+# layer just calls `startup()` and `shutdown()` from the FastAPI lifespan.
+# --------------------------------------------------------------------------------------
+
+_client: httpx.AsyncClient | None = None
+
+
+async def startup() -> None:
+    """Open the shared connection pool. Call once from the FastAPI lifespan.
+
+    Safe to call when no API key is configured, which is the expected state today
+    (CONTRACT.md: the app must start cleanly without `OPENROUTER_API_KEY`). Creating an
+    `httpx.AsyncClient` opens no socket by itself — connections are established lazily on
+    the first request — so an unused pool costs nothing and the key is never consulted
+    here. This also means exporting the key later still works with no restart of this
+    module's state, exactly as the lazy `_api_key()` read intends.
+
+    Idempotent: calling it twice is a no-op rather than a leak, so a test that drives the
+    lifespan more than once does not strand a client.
+    """
+    global _client
+    if _client is not None:
+        return
+    # No default timeout is set here. The two paths have sharply different budgets
+    # (TIMEOUT_FAST vs TIMEOUT_DEEP) and the model is not known until call time, so the
+    # timeout is passed per request instead. Setting one here would silently cap the
+    # deep model's 45s read budget at whatever default the pool carried.
+    _client = httpx.AsyncClient(limits=POOL_LIMITS)
+    log.info("genai: shared HTTP client ready")
+
+
+async def shutdown() -> None:
+    """Close the shared pool and release its sockets. Call from the lifespan teardown.
+
+    Safe to call when `startup()` never ran or already shut down — an unclean exit path
+    must not raise on the way out and mask the real failure.
+    """
+    global _client
+    if _client is None:
+        return
+    client, _client = _client, None
+    try:
+        await client.aclose()
+    except Exception as exc:  # pragma: no cover - teardown is best-effort
+        # Closing a pool can raise if the loop is already tearing down. Nothing useful
+        # can be done about it and it must not become the last error a reader sees.
+        log.debug("genai: client close failed: %s", _redact(str(exc)))
+
+
+def _shared_client() -> httpx.AsyncClient | None:
+    """The pooled client, or None if the lifespan has not started it.
+
+    Returning None rather than lazily creating one is deliberate: a client created
+    outside the lifespan would never be closed, and silently working without the pool is
+    how the per-call-client regression would come back unnoticed. Callers fall back to a
+    short-lived owned client so tests and scripts that import this module directly still
+    work.
+    """
+    return _client
+
+
+# --------------------------------------------------------------------------------------
 # Transport
 # --------------------------------------------------------------------------------------
 
@@ -565,7 +668,12 @@ async def _attempt(
     payload_body = _body(model, system, user, stream=False, max_tokens=max_tokens)
 
     async def _run(c: httpx.AsyncClient) -> str:
-        response = await c.post(API_URL, headers=_headers(key), json=payload_body)
+        # Timeout is passed per request, not baked into the client. The shared pool is
+        # used by both the fast and the deep path, whose budgets differ by a factor of
+        # four; a client-level default would silently apply the wrong one.
+        response = await c.post(
+            API_URL, headers=_headers(key), json=payload_body, timeout=timeout
+        )
         if response.status_code != 200:
             raise _classify_status(response.status_code)
         try:
@@ -575,9 +683,14 @@ async def _attempt(
         return _extract_text(data)
 
     try:
-        if client is not None:
-            return await _run(client)
-        async with httpx.AsyncClient(timeout=timeout) as owned:
+        # Precedence: an explicitly passed client (tests, batching callers) wins, then
+        # the lifespan-owned pool, and only if neither exists do we open a throwaway
+        # client. That last branch is the old behaviour, kept as a fallback so importing
+        # this module in a script still works — it is not the production path.
+        chosen = client or _shared_client()
+        if chosen is not None:
+            return await _run(chosen)
+        async with httpx.AsyncClient(timeout=timeout, limits=POOL_LIMITS) as owned:
             return await _run(owned)
     except httpx.TimeoutException:
         raise _Retryable(ERR_TIMEOUT) from None
@@ -720,7 +833,7 @@ async def _stream_attempt(
 
     async def _run(c: httpx.AsyncClient) -> AsyncIterator[str]:
         async with c.stream(
-            "POST", API_URL, headers=_headers(key), json=body
+            "POST", API_URL, headers=_headers(key), json=body, timeout=timeout
         ) as response:
             if response.status_code != 200:
                 # Body must be consumed before it can be read on a streaming response.
@@ -744,11 +857,16 @@ async def _stream_attempt(
                     yield delta
 
     try:
-        if client is not None:
-            async for delta in _run(client):
+        # Same precedence as `_attempt`: explicit client, then the shared pool, then a
+        # throwaway. Reuse matters more on this path than anywhere else — the streaming
+        # check-in reply is the one generation a person is literally waiting to hear,
+        # so removing a TLS handshake removes it from the front of that wait.
+        chosen = client or _shared_client()
+        if chosen is not None:
+            async for delta in _run(chosen):
                 yield delta
             return
-        async with httpx.AsyncClient(timeout=timeout) as owned:
+        async with httpx.AsyncClient(timeout=timeout, limits=POOL_LIMITS) as owned:
             async for delta in _run(owned):
                 yield delta
     except httpx.TimeoutException:

@@ -93,6 +93,21 @@
 
     <div class="notice notice--error" id="system-notice" role="status" aria-live="polite" hidden></div>
 
+    <!--
+      A11Y — THE PAGE HEADING.
+      This document previously began at <h2>, leaving it with no top-level
+      heading and a broken outline.
+
+      Visually hidden rather than drawn, because the visible top-level element
+      here is deliberately the tier WORD at display size — "Emergency" in the
+      tier colour — which a caregiver reading at 3am must see before any
+      sentence. That word is the right visual hierarchy but the wrong heading
+      text: an outline entry reading "Baseline" tells a screen reader user
+      nothing about what page they are on. So the tier word keeps its visual
+      role and this carries the semantic one.
+    -->
+    <h1 class="visually-hidden">Caregiver alert — Sam's current status</h1>
+
     <!-- ---------------------------------------------------------------- 1 -
          THE ALERT. Tier word first, at display size, in the tier colour — a
          caregiver reading this at 3am on a phone should know the severity

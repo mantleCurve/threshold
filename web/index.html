@@ -204,6 +204,13 @@
            are rendered. Labelled as a generation so a fallback is never
            mistaken for a live one. -->
       <div class="card" id="vault-panel" hidden aria-live="polite"></div>
+
+      <!-- Output for the two NON-vault controls in this row (refusal script,
+           grounding sequence). A separate panel from #vault-panel on purpose:
+           the grounding exercise is a live, ticking region, and rendering it
+           into the same node as the vault clip would silently destroy a clip
+           the user is still reading. -->
+      <div class="card" id="support-panel" hidden aria-live="polite"></div>
     </section>
 
     <section class="stack" data-when-tier="3" aria-labelledby="harm-h">
@@ -325,12 +332,25 @@
   </a>
 
   <div class="stack-tight">
-    <!-- What already happened. Two lines. Not for the user — for whoever picks
-         up the phone, so they do not waste seconds deciding what to do. -->
-    <ul class="takeover__status data" id="takeover-status" aria-label="What the system has already done">
-      <li>Location sent</li>
-      <li>Contacts called</li>
-      <li>Door code shared</li>
+    <!-- What this app has actually done — for whoever picks up the phone.
+         EVERY LINE HERE MUST BE LITERALLY TRUE. This list previously read
+         "Location sent / Contacts called / Door code shared", none of which
+         this software does: there is no outbound SMS, no phone call, no
+         dispatch integration, and the location is only ever displayed on this
+         same device. Our own Terms page says the app cannot summon an
+         ambulance, so those lines contradicted our own legal text.
+         The danger is specific and lethal: a person reading "Contacts called"
+         may wait for help that nobody was ever told to send, instead of
+         pressing the 911 button directly above.
+         Lines are written by app.js as each step genuinely completes. -->
+    <!-- Captions for spoken guidance. The emergency flow delivers its
+         instructions by voice, so without this a deaf user gets a red screen
+         and no direction. assertive: at Tier 4 interrupting is correct. -->
+    <p class="takeover__caption" id="speech-caption" role="status"
+       aria-live="assertive" hidden></p>
+
+    <ul class="takeover__status data" id="takeover-status" aria-label="What this app has done so far">
+      <li>Call 911 using the button above — this app cannot call for you.</li>
     </ul>
 
     <div class="takeover__foot">

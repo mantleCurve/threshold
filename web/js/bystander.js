@@ -120,10 +120,12 @@ async function loadSamaritan(stateCode) {
   try {
     rec = await api(`/api/legal/${encodeURIComponent(stateCode)}`);
   } catch {
-    // Degrade to the markup. The headline above ("You will not be arrested for
-    // calling 911 to save someone's life") is authored, reviewed copy that is
-    // true in every state that has a Good Samaritan law, so the page is still
-    // doing its job with the network down.
+    // Degrade to the markup. The headline above — "Call 911 and stay with
+    // them" — is authored, reviewed copy that is unconditionally true
+    // everywhere, so the page still does its job with the network down. We
+    // deliberately do NOT fall back to a generic claim about legal protection:
+    // if we cannot load the state's record, we say we cannot, rather than
+    // guessing at an immunity that varies by state.
     host.innerHTML =
       '<span class="unverified badge badge--fallback">could not load your state\'s statute</span> ' +
       'The advice above still stands: call, stay, and say what you see.';
