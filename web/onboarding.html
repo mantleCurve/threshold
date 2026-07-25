@@ -329,9 +329,16 @@
         <h2 class="h2 display" id="invite-h">Invite someone to support you</h2>
         <p class="prose">
           Nobody can attach themselves to you. Not a family member, not us. The
-          only way anyone sees any part of this is that you generate a code here
-          and give it to them yourself.
+          only way anyone sees any part of this is that you generate a one-time
+          code. We can email it to the person you choose, or you can share it yourself.
         </p>
+
+        <div class="field" style="max-width: 32rem;">
+          <label for="invite-email">Caregiver email</label>
+          <input class="input" id="invite-email" type="email" maxlength="320"
+                 autocomplete="email" placeholder="caregiver@example.com">
+          <p class="hint">We send the code here. They still need to create and verify their own account.</p>
+        </div>
 
         <div class="row">
           <button type="button" class="btn" id="make-invite">Generate an invite code</button>
@@ -354,6 +361,13 @@
         </div>
 
         <p class="hint" id="invite-error" role="alert" hidden></p>
+
+        <div class="stack" aria-live="polite">
+          <h3 class="h3">Invited and connected people</h3>
+          <div class="stack-tight" id="invite-list">
+            <p class="hint">Loading invitations…</p>
+          </div>
+        </div>
       </section>
 
       <!-- ---------------------------------------------------------------- 5 -
@@ -495,9 +509,9 @@
   </main>
 </div>
 
-<script src="/static/js/onboarding.js?v=20260725-3" type="module"></script>
+<script src="/static/js/onboarding.js?v=20260725-4" type="module"></script>
 <!-- Wires the "who Threshold sounds like" picker above. Separate module so the
      whole supporter-voice consent chain can be audited in one file. -->
-<script src="/static/js/voice.js" type="module"></script>
+<script src="/static/js/voice.js?v=20260725-5" type="module"></script>
 </body>
 </html>

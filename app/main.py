@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -48,6 +49,8 @@ from app.models import Contact, Event, Tier, TriageResult, UserProfile
 from app.schemas import (
     ActionReceiptRequest,
     ContactRequest,
+    InviteCreateRequest,
+    InviteResendRequest,
     LoginRequest,
     ProfileUpdateRequest,
     RegisterRequest,
@@ -325,7 +328,10 @@ async def auth_register_verify(body: VerifyRegistrationRequest) -> JSONResponse:
 # which the unconsented case cannot be expressed. Nobody can attach themselves
 # to a person who did not invite them, because there is no parameter for it.
 @app.post("/api/invite")
-async def post_invite(request: Request) -> dict:
+async def post_invite(
+    request: Request,
+    body: InviteCreateRequest | None = Body(default=None),
+) -> dict:
     """Generate a single-use, 24-hour invite code. Called by the member.
 
     A REAL SESSION IS REQUIRED — `authenticated_user_id`, which has no demo
@@ -363,14 +369,107 @@ async def post_invite(request: Request) -> dict:
             detail="Only the person being supported can create an invite code.",
         )
 
+    email = (body.email if body else "").strip().lower()
+    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid caregiver email.")
+
     invite = await asyncio.to_thread(
-        store.create_invite, user_id, now=_now_naive()
+        store.create_invite,
+        user_id,
+        now=_now_naive(),
+        invited_email=email,
     )
+    delivered, delivery_error = False, None
+    if email:
+        delivered, delivery_error = await email_delivery.send_caregiver_invitation(
+            email,
+            user.full_name or "Someone you care about",
+            invite.code,
+            idempotency_key=f"invite-{invite.code}",
+        )
     return {
         "code": invite.code,
+        "email": email,
+        "email_sent": delivered,
+        "email_error": delivery_error,
         "expires_at": invite.expires_at.isoformat(),
         "expires_in_hours": store.INVITE_TTL_HOURS,
     }
+
+
+@app.get("/api/invites")
+async def get_invites(request: Request) -> dict:
+    """Show a member every issued invitation and every accepted caregiver."""
+    user_id = authenticated_user_id(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Sign in to view invitations.")
+    user = await asyncio.to_thread(store.get_user, user_id)
+    if not user or user.role != "user":
+        raise HTTPException(status_code=403, detail="Only members have invitations.")
+
+    now = _now_naive()
+    invites = await asyncio.to_thread(store.list_invites, user_id)
+    caregiver_ids = await asyncio.to_thread(store.caregivers_for, user_id)
+    caregivers = await asyncio.gather(
+        *(asyncio.to_thread(store.get_user, caregiver_id) for caregiver_id in caregiver_ids)
+    )
+    return {
+        "invitations": [
+            {
+                "code": invite.code,
+                "email": invite.invited_email,
+                "created_at": invite.created_at.isoformat(),
+                "expires_at": invite.expires_at.isoformat(),
+                "expired": invite.is_expired(now),
+                "redeemed": invite.is_spent,
+            }
+            for invite in invites
+        ],
+        "caregivers": [
+            {
+                "full_name": caregiver.full_name,
+                "email": caregiver.email,
+            }
+            for caregiver in caregivers
+            if caregiver
+        ],
+    }
+
+
+@app.post("/api/invite/resend")
+async def resend_invite(
+    request: Request,
+    body: InviteResendRequest,
+) -> dict:
+    """Resend an unspent, unexpired invitation owned by the signed-in member."""
+    user_id = authenticated_user_id(request)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Sign in to resend invitations.")
+    user = await asyncio.to_thread(store.get_user, user_id)
+    if not user or user.role != "user":
+        raise HTTPException(status_code=403, detail="Only members have invitations.")
+
+    invite = await asyncio.to_thread(store.get_invite, body.code)
+    if not invite or invite.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+    if invite.is_spent:
+        raise HTTPException(status_code=409, detail="This invitation has already been used.")
+    if invite.is_expired(_now_naive()):
+        raise HTTPException(status_code=410, detail="This invitation has expired. Create a new one.")
+
+    email = (body.email or invite.invited_email).strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(status_code=422, detail="Enter a valid caregiver email.")
+    await asyncio.to_thread(store.set_invite_email, invite.code, user_id, email)
+    delivered, error = await email_delivery.send_caregiver_invitation(
+        email,
+        user.full_name or "Someone you care about",
+        invite.code,
+        idempotency_key=f"invite-resend-{invite.code}-{uuid.uuid4().hex}",
+    )
+    if not delivered:
+        raise HTTPException(status_code=503, detail=error or "Invitation could not be sent.")
+    return {"ok": True, "code": invite.code, "email": email, "email_sent": True}
 
 
 @app.post("/api/invite/redeem")

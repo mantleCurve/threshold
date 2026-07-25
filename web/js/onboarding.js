@@ -457,6 +457,8 @@ function initInvite() {
   const codeEl = document.getElementById('invite-code');
   const expiryEl = document.getElementById('invite-expiry');
   const errEl = document.getElementById('invite-error');
+  const emailEl = document.getElementById('invite-email');
+  const listEl = document.getElementById('invite-list');
 
   /** Show a failure in the section's role="alert" region. Empty string clears. */
   const inviteError = (text) => {
@@ -465,14 +467,61 @@ function initInvite() {
     errEl.hidden = !text;
   };
 
+  const renderInvites = (data) => {
+    if (!listEl) return;
+    const caregivers = data?.caregivers || [];
+    const invitations = data?.invitations || [];
+    const connected = caregivers.map((person) => `
+      <div class="panel">
+        <p><strong>${escapeHtml(person.full_name || person.email || 'Caregiver')}</strong>
+          <span class="badge">connected</span></p>
+        ${person.email ? `<p class="hint">${escapeHtml(person.email)}</p>` : ''}
+      </div>`).join('');
+    const issued = invitations.map((invite) => {
+      const status = invite.redeemed ? 'used' : (invite.expired ? 'expired' : 'pending');
+      return `
+        <div class="panel stack-tight">
+          <div class="row-between">
+            <p><strong>${escapeHtml(invite.email || 'Shared manually')}</strong>
+              <span class="badge">${status}</span></p>
+            <code class="data">${escapeHtml(invite.code)}</code>
+          </div>
+          <p class="hint">Expires ${escapeHtml(new Date(invite.expires_at).toLocaleString())}</p>
+          ${status === 'pending' ? `
+            <button type="button" class="btn btn--quiet"
+                    data-resend-code="${escapeHtml(invite.code)}"
+                    data-resend-email="${escapeHtml(invite.email)}">
+              Resend invitation
+            </button>` : ''}
+        </div>`;
+    }).join('');
+    listEl.innerHTML = connected + issued ||
+      '<p class="hint">No invitations or connected caregivers yet.</p>';
+  };
+
+  const loadInvites = async () => {
+    const res = await request('/api/invites');
+    if (res.ok) renderInvites(res.data);
+    else if (listEl) listEl.innerHTML = '<p class="hint">Could not load invitations.</p>';
+  };
+
   btn.addEventListener('click', async () => {
     inviteError('');
+    const email = emailEl?.value.trim() || '';
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      inviteError('Enter a valid caregiver email.');
+      emailEl?.focus();
+      return;
+    }
     const idle = btn.textContent;
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
     btn.textContent = 'Generating…';
 
-    const res = await request('/api/invite', { method: 'POST' });
+    const res = await request('/api/invite', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
 
     btn.disabled = false;
     btn.setAttribute('aria-busy', 'false');
@@ -495,6 +544,11 @@ function initInvite() {
       expiryEl.textContent = when && !isNaN(when)
         ? `Works once. Stops working at ${when.toLocaleString()}.`
         : `Works once. Expires in ${res.data.expires_in_hours ?? 24} hours.`;
+      if (email) {
+        expiryEl.textContent += res.data.email_sent
+          ? ` Invitation emailed to ${email}.`
+          : ` The code was created, but email was not delivered: ${res.data.email_error || 'try Resend invitation.'}`;
+      }
     }
     if (result) result.hidden = false;
 
@@ -502,7 +556,38 @@ function initInvite() {
     // button must land on the thing it produced, not stay on the button.
     codeEl?.setAttribute('tabindex', '-1');
     codeEl?.focus?.();
+    await loadInvites();
   });
+
+  listEl?.addEventListener('click', async (event) => {
+    const resend = event.target.closest('[data-resend-code]');
+    if (!resend) return;
+    const code = resend.dataset.resendCode;
+    const storedEmail = resend.dataset.resendEmail || '';
+    const email = storedEmail || emailEl?.value.trim() || '';
+    if (!email) {
+      inviteError('Enter the caregiver email above, then press Resend invitation.');
+      emailEl?.focus();
+      return;
+    }
+    resend.disabled = true;
+    resend.textContent = 'Sending…';
+    const response = await request('/api/invite/resend', {
+      method: 'POST',
+      body: JSON.stringify({ code, email }),
+    });
+    resend.disabled = false;
+    resend.textContent = 'Resend invitation';
+    if (!response.ok) {
+      inviteError(response.data?.detail || 'Could not resend the invitation.');
+      return;
+    }
+    inviteError('');
+    if (expiryEl) expiryEl.textContent = `Invitation resent to ${email}.`;
+    await loadInvites();
+  });
+
+  loadInvites();
 }
 
 /* -------------------------------------------------------------------------- */

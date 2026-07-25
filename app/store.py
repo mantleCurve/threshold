@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS invites (
     -- The member who issued it. CASCADE so a deleted account cannot leave a
     -- live code behind that would attach a caregiver to a ghost.
     user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invited_email    TEXT NOT NULL DEFAULT '',
     created_at       TEXT NOT NULL,   -- ISO-8601
     expires_at       TEXT NOT NULL,   -- ISO-8601; 24h after creation
     -- NULL until redeemed. Non-NULL is the single-use latch.
@@ -450,6 +451,7 @@ _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("users", "phone", "TEXT NOT NULL DEFAULT ''"),
     ("pending_registrations", "full_name", "TEXT NOT NULL DEFAULT ''"),
     ("pending_registrations", "phone", "TEXT NOT NULL DEFAULT ''"),
+    ("invites", "invited_email", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -1029,6 +1031,7 @@ class Invite:
     user_id: str
     created_at: datetime
     expires_at: datetime
+    invited_email: str = ""
     redeemed_at: datetime | None = None
     redeemed_by: str | None = None
 
@@ -1073,6 +1076,7 @@ def _row_to_invite(row: sqlite3.Row) -> Invite:
         user_id=row["user_id"],
         created_at=datetime.fromisoformat(row["created_at"]),
         expires_at=datetime.fromisoformat(row["expires_at"]),
+        invited_email=row["invited_email"] or "",
         redeemed_at=(
             datetime.fromisoformat(row["redeemed_at"]) if row["redeemed_at"] else None
         ),
@@ -1102,6 +1106,7 @@ def create_invite(
     user_id: str,
     now: datetime | None = None,
     ttl_hours: int = INVITE_TTL_HOURS,
+    invited_email: str = "",
 ) -> Invite:
     """Issue a fresh, single-use, expiring invite code for a member.
 
@@ -1136,12 +1141,23 @@ def create_invite(
         try:
             with connection() as conn:
                 conn.execute(
-                    "INSERT INTO invites (code, user_id, created_at, expires_at)"
-                    " VALUES (?, ?, ?, ?)",
-                    (code, user_id, issued.isoformat(), expires.isoformat()),
+                    "INSERT INTO invites "
+                    "(code, user_id, invited_email, created_at, expires_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (
+                        code,
+                        user_id,
+                        invited_email.strip().lower(),
+                        issued.isoformat(),
+                        expires.isoformat(),
+                    ),
                 )
             return Invite(
-                code=code, user_id=user_id, created_at=issued, expires_at=expires
+                code=code,
+                user_id=user_id,
+                created_at=issued,
+                expires_at=expires,
+                invited_email=invited_email.strip().lower(),
             )
         except sqlite3.IntegrityError as exc:
             # Distinguish a code collision (retryable) from a bad user_id (not).
@@ -1307,6 +1323,16 @@ def list_invites(user_id: str) -> list[Invite]:
             (user_id,),
         ).fetchall()
     return [_row_to_invite(r) for r in rows]
+
+
+def set_invite_email(code: str, user_id: str, email: str) -> bool:
+    """Update the delivery address only when the invite belongs to this member."""
+    with connection() as conn:
+        cursor = conn.execute(
+            "UPDATE invites SET invited_email = ? WHERE code = ? AND user_id = ?",
+            (email.strip().lower(), code.strip().upper(), user_id),
+        )
+    return cursor.rowcount == 1
 
 
 # ---------------------------------------------------------------------------

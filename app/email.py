@@ -84,6 +84,51 @@ async def send_verification_code(
         return False, "The verification email could not be sent. Please try again."
 
 
+async def send_caregiver_invitation(
+    email: str,
+    member_name: str,
+    code: str,
+    *,
+    idempotency_key: str,
+) -> tuple[bool, str | None]:
+    """Email the member-issued code without creating or linking an account."""
+    key = os.getenv("RESEND_API_KEY", "").strip()
+    if not key:
+        return False, "Caregiver invitation email is not configured."
+    try:
+        response = await _http().post(
+            _API_URL,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": idempotency_key[:256],
+                "User-Agent": "Threshold/1.0",
+            },
+            json={
+                "from": _sender(),
+                "to": [email],
+                "subject": f"{member_name} invited you to Threshold",
+                "text": (
+                    f"{member_name} invited you to support their recovery on Threshold. "
+                    f"Your one-time invite code is {code}. It expires in 24 hours. "
+                    "Create your caregiver account at "
+                    "https://threshold.mntlcrv.com/register/caregiver and enter this code. "
+                    "This invitation does not give you access until you create and verify "
+                    "your account."
+                ),
+            },
+        )
+        return (
+            (True, None)
+            if response.is_success
+            else (False, "The invitation email provider refused the request.")
+        )
+    except httpx.TimeoutException:
+        return False, "The invitation email timed out. Please try again."
+    except httpx.HTTPError:
+        return False, "The invitation email could not be sent. Please try again."
+
+
 async def send_caregiver_alert(
     email: str,
     member_name: str,

@@ -178,6 +178,19 @@ class VerifyRegistrationRequest(_StrictBody):
     code: str = Field(pattern=r"^\d{6}$")
 
 
+class InviteCreateRequest(_StrictBody):
+    """Create an invite and optionally email it to the caregiver."""
+
+    email: str = Field(default="", max_length=320)
+
+
+class InviteResendRequest(_StrictBody):
+    """Resend one existing, active invite to its caregiver."""
+
+    code: str = Field(min_length=6, max_length=12)
+    email: str = Field(default="", max_length=320)
+
+
 class LoginRequest(_StrictBody):
     """Body of `POST /api/auth/login`.
 
