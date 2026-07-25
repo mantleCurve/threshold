@@ -528,6 +528,31 @@ function renderRecent(events) {
     </article>`).join('');
 }
 
+/**
+ * Render check-in timing without exposing transcripts or member-hidden tiers.
+ * The server is the privacy boundary and marks which summaries may be shown.
+ */
+function renderCheckins(checkins) {
+  const host = document.getElementById('checkin-log');
+  if (!host) return;
+  if (!checkins?.length) {
+    host.innerHTML = '<p class="empty">No check-ins recorded yet.</p>';
+    return;
+  }
+  host.innerHTML = checkins.slice().reverse().map((checkin) => `
+    <article class="log__row">
+      <time class="log__time" datetime="${escapeHtml(checkin.at)}">
+        ${new Date(checkin.at).toLocaleString()}
+      </time>
+      <span class="log__tier">${checkin.shared
+        ? escapeHtml(checkin.tier_name || `Tier ${checkin.tier}`)
+        : 'Completed privately'}</span>
+      <div><p class="log__reason">${checkin.shared
+        ? escapeHtml(checkin.summary || 'Check-in completed.')
+        : 'They checked in. What they said remains private.'}</p></div>
+    </article>`).join('');
+}
+
 /* -------------------------------------------------------------------------- */
 /* Notices                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -599,6 +624,7 @@ function initStream() {
         const state = await api('/api/state');
         renderAlreadyDid(state.events);
         renderRecent(state.events);
+        renderCheckins(state.checkins || []);
       } catch { /* A receipt may appear on the next reconnect. */ }
       return;
     }
@@ -612,6 +638,7 @@ function initStream() {
       const state = await api('/api/state');
       renderAlreadyDid(state.events);
       renderRecent(state.events);
+      renderCheckins(state.checkins || []);
     } catch { /* The tier is already on screen; the log can lag a beat. */ }
 
     // PRD §4.2: tier 4 and 5 always reach the caregiver, whatever the config
@@ -680,6 +707,20 @@ async function boot() {
 
   renderVisibility(state.profile);
 
+  // Always identify the linked member, including while their current tier is
+  // private. A caregiver link grants knowledge of whom they support; it does
+  // not grant the hidden tier, transcript, location, or event history.
+  if (state.profile?.name) {
+    setText('watched-name', state.profile.name);
+    setText('caregiver-page-title', `Supporting ${state.profile.name}`);
+  }
+  const tel = state.profile?.phone;
+  const callBtn = document.getElementById('alert-call-user');
+  if (callBtn && state.profile?.name) {
+    callBtn.textContent = `Call ${state.profile.name}`;
+    if (tel && /\d/.test(tel)) callBtn.dataset.tel = tel;
+  }
+
   if (state.visible === false) {
     currentTier = null;
     document.body.dataset.tier = '0';
@@ -695,6 +736,7 @@ async function boot() {
     setText('brief-meta', 'Privacy boundary active');
     renderAlreadyDid([]);
     renderRecent([]);
+    renderCheckins(state.checkins || []);
     const refresh = document.getElementById('brief-refresh');
     if (refresh) refresh.disabled = true;
     const callMember = document.getElementById('alert-call-user');
@@ -705,18 +747,7 @@ async function boot() {
   renderTier(state.tier, '');
   renderAlreadyDid(state.events);
   renderRecent(state.events);
-
-  // The watched person's name, from the profile rather than the markup default.
-  if (state.profile?.name) setText('watched-name', state.profile.name);
-
-  // The member's own number is a distinct field. A contact-tree destination
-  // belongs to somebody else and must never be used as "Call the member".
-  const tel = state.profile?.phone;
-  const callBtn = document.getElementById('alert-call-user');
-  if (callBtn && state.profile?.name) {
-    callBtn.textContent = `Call ${state.profile.name}`;
-    if (tel && /\d/.test(tel)) callBtn.dataset.tel = tel;
-  }
+  renderCheckins(state.checkins || []);
 
   // Report AI availability honestly and visibly, rather than letting an offline
   // model look like a broken feature (CONTRACT: GenAI access).

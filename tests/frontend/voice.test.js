@@ -41,11 +41,15 @@ class FakeAudio {
   constructor(url) {
     this.url = url;
     this.listeners = {};
+    this.pauseCalls = 0;
+    FakeAudio.instances.push(this);
+    FakeAudio.last = this;
   }
   addEventListener(name, callback) { this.listeners[name] = callback; }
   async play() { return undefined; }
-  pause() {}
+  pause() { this.pauseCalls += 1; }
 }
+FakeAudio.instances = [];
 globalThis.Audio = FakeAudio;
 
 const voice = await import('../../web/js/voice.js');
@@ -99,4 +103,17 @@ test('cloud failure speaks locally and discloses the fallback', async () => {
   assert.equal(window.speechSynthesis.spoken.at(-1).text, 'Stay with me.');
   assert.match(appended.at(-1).textContent, /ElevenLabs was unavailable/);
   assert.equal(appended.at(-1).hidden, false);
+});
+
+test('cancelSpeech stops ElevenLabs audio immediately', async () => {
+  globalThis.fetch = async () => ({
+    ok: true,
+    async blob() { return new Blob(['mp3']); },
+    headers: { get() { return 'false'; } },
+  });
+
+  assert.equal(await voice.speakWithChosenVoice('Stop when I rescind.'), 'cloud');
+  const audio = FakeAudio.last;
+  voice.cancelSpeech();
+  assert.ok(audio.pauseCalls >= 2, 'play setup and cancellation both pause audio');
 });

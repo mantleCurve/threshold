@@ -619,9 +619,27 @@ async def get_state(request: Request) -> dict:
         event_payload = caregiver_event_projection(
             events, caller_id, user_id, visible=caregiver_visible
         )
+        checkins = []
+        for event in [item for item in events if item.trigger_source == "utterance"][-5:]:
+            shared = visible_to(caller_id, user_id, event.tier)
+            item = {
+                "at": event.at.isoformat(),
+                "status": "completed",
+                "shared": shared,
+            }
+            if shared:
+                item.update(
+                    {
+                        "tier": int(event.tier),
+                        "tier_name": TIER_NAMES[event.tier],
+                        "summary": event.reason,
+                    }
+                )
+            checkins.append(item)
     else:
         profile_payload = profile.model_dump(mode="json") if profile else None
         event_payload = [e.model_dump(mode="json") for e in events]
+        checkins = []
 
     return {
         "visible": caregiver_visible if caregiver_view else True,
@@ -634,6 +652,7 @@ async def get_state(request: Request) -> dict:
         "ai_online": ai_online,
         "profile": profile_payload,
         "events": event_payload,
+        "checkins": checkins,
         # The order contract, stated on the wire rather than only in a docstring.
         # Consumers had drifted into disagreeing about this — one sliced the
         # wrong end, another reversed an already-reversed list — and a caregiver
@@ -1300,52 +1319,79 @@ async def page_root(request: Request):
     Signing in then lands you straight in the app, because someone who has an
     account does not need the pitch.
     """
-    try:
-        from app import auth
+    from app import auth
 
-        if auth.user_from_request(request):
-            return _page("index.html")
-    except Exception:
-        pass
+    user = await asyncio.to_thread(auth.user_from_request, request)
+    if user:
+        if user.role == "caregiver":
+            return RedirectResponse("/caregiver", status_code=303)
+        return _page("index.html")
     return _page("home.html")
 
 
-def _private_page(request: Request, name: str):
-    """Serve a private page only while its signed session is valid."""
+async def _private_page(
+    request: Request,
+    name: str,
+    *,
+    role: str | None = None,
+    wrong_role_destination: str = "/",
+):
+    """Serve a private page only to the account role it was designed for."""
     from app import auth
 
-    if auth.user_from_request(request) is None:
+    user = await asyncio.to_thread(auth.user_from_request, request)
+    if user is None:
         return RedirectResponse("/login", status_code=303)
+    if role and user.role != role:
+        return RedirectResponse(wrong_role_destination, status_code=303)
     return _page(name)
 
 
 @app.get("/app")
 async def page_app(request: Request):
     """Member app, protected at the HTTP boundary."""
-    return _private_page(request, "index.html")
+    return await _private_page(
+        request,
+        "index.html",
+        role="user",
+        wrong_role_destination="/caregiver",
+    )
 
 
 @app.get("/caregiver")
 async def page_caregiver(request: Request):
-    return _private_page(request, "caregiver.html")
+    return await _private_page(
+        request,
+        "caregiver.html",
+        role="caregiver",
+        wrong_role_destination="/app",
+    )
 
 
 @app.get("/onboarding")
 async def page_onboarding(request: Request):
-    return _private_page(request, "onboarding.html")
+    return await _private_page(
+        request,
+        "onboarding.html",
+        role="user",
+        wrong_role_destination="/caregiver",
+    )
 
 
 @app.get("/ladder")
 async def page_ladder(request: Request):
-    return _private_page(request, "ladder.html")
+    return await _private_page(request, "ladder.html")
 
 
 @app.get("/legacy-app")
 async def page_legacy_app(request: Request):
     """Compatibility redirect for previously bookmarked app links."""
-    if authenticated_user_id(request) is None:
-        return RedirectResponse("/login", status_code=303)
-    return _page("index.html")
+    return await _private_page(
+        request,
+        "index.html",
+        role="user",
+        wrong_role_destination="/caregiver",
+    )
 
 
 @app.get("/bystander")

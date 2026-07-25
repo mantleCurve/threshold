@@ -113,7 +113,7 @@
       nothing about what page they are on. So the tier word keeps its visual
       role and this carries the semantic one.
     -->
-    <h1 class="visually-hidden">Caregiver alert — your member's current status</h1>
+    <h1 class="visually-hidden" id="caregiver-page-title">Caregiver dashboard</h1>
 
     <!-- ---------------------------------------------------------------- 1 -
          THE ALERT. Tier word first, at display size, in the tier colour — a
@@ -236,6 +236,14 @@
         There is no second view of them that you are not being shown — and they
         invited you here, which is the only way you could be.
       </p>
+    </section>
+
+    <section class="stack" data-chrome aria-labelledby="checkins-h">
+      <div class="row-between">
+        <h2 class="label" id="checkins-h">Recent check-ins</h2>
+        <span class="hint">What was said stays private</span>
+      </div>
+      <div class="log" id="checkin-log"></div>
     </section>
 
     <section class="stack" data-chrome aria-labelledby="crecent-h">
@@ -365,7 +373,7 @@
   </main>
 </div>
 
-<script src="/static/js/caregiver.js" type="module"></script>
+<script src="/static/js/caregiver.js?v=20260725-2" type="module"></script>
 <!-- Separate module, loaded on both surfaces. The whole consent gate lives in
      one file so it can be audited in one read. -->
 <script src="/static/js/voice.js" type="module"></script>

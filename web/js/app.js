@@ -26,6 +26,7 @@
 'use strict';
 
 import {
+  cancelSpeech,
   primeAudioPlayback,
   speakWithChosenVoice,
 } from '/static/js/voice.js?v=20260725-5';
@@ -231,7 +232,7 @@ function renderTier(tier, reason) {
       // Leaving the emergency: stop anything still queued, or a rescinded
       // alarm keeps speaking and hailing bystanders after being stood down.
       clearEmergencyTimers();
-      window.speechSynthesis?.cancel();
+      cancelSpeech();
       const caption = document.getElementById('speech-caption');
       if (caption) caption.hidden = true;
 
@@ -905,7 +906,7 @@ let groundingTimers = [];
 function startGrounding() {
   groundingTimers.forEach(clearTimeout);
   groundingTimers = [];
-  window.speechSynthesis?.cancel();
+  cancelSpeech();
 
   const host = document.getElementById('support-panel');
   if (!host) return;
@@ -982,7 +983,7 @@ function initControls() {
   ['rescind', 'takeover-rescind'].forEach((id) => {
     document.getElementById(id)?.addEventListener('click', async () => {
       clearEmergencyTimers();
-      window.speechSynthesis?.cancel();
+      cancelSpeech();
       const res = await post('/api/rescind');
       renderTier(res.tier, res.reason);
       addSystemNote(res.reason);
