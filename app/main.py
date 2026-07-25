@@ -135,7 +135,7 @@ def _now_naive() -> datetime:
 # yourself about to redefine it here, that is the bug.
 
 async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
-    """Email every verified linked caregiver; never delay the emergency UI."""
+    """Email verified linked caregivers and member-entered emergency contacts."""
     from app.models import TIER_NAMES
 
     if event.tier < Tier.EMERGENCY:
@@ -147,6 +147,7 @@ async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
     member_name = (
         profile.name if profile else (member.full_name if member else "A member")
     )
+    delivered_to: set[str] = set()
     caregiver_ids = await asyncio.to_thread(store.caregivers_for, user_id)
     for caregiver_id in caregiver_ids:
         caregiver = await asyncio.to_thread(store.get_user, caregiver_id)
@@ -159,6 +160,7 @@ async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
             idempotency_key=f"threshold-alert/{event.id}/{caregiver.id}",
         )
         if delivered:
+            delivered_to.add(caregiver.email.lower())
             await asyncio.to_thread(
                 store.append_event,
                 Event(
@@ -170,6 +172,41 @@ async def _deliver_emergency_alerts(user_id: str, event: Event) -> None:
                     reason="A linked caregiver emergency email was delivered.",
                     actions_planned=[],
                     actions_taken=["caregiver_email_delivered"],
+                ),
+            )
+
+    # A member can add an emergency email before the recipient has accepted a
+    # caregiver account invitation. These addresses receive the minimum alert
+    # only at tiers explicitly selected by the member. Linked caregivers above
+    # are deduplicated so one person never receives two alerts for one event.
+    for index, contact in enumerate(profile.contacts if profile else [], start=1):
+        destination = contact.destination.strip().lower()
+        if (
+            contact.channel != "email"
+            or not destination
+            or event.tier not in contact.tiers
+            or destination in delivered_to
+        ):
+            continue
+        delivered, _error = await email_delivery.send_caregiver_alert(
+            destination,
+            member_name,
+            tier_name=TIER_NAMES[event.tier],
+            idempotency_key=f"threshold-alert/{event.id}/contact-{index}",
+        )
+        if delivered:
+            delivered_to.add(destination)
+            await asyncio.to_thread(
+                store.append_event,
+                Event(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    at=_now(),
+                    tier=event.tier,
+                    trigger_source="delivery_receipt",
+                    reason=f"Emergency email delivered to {contact.name}.",
+                    actions_planned=[],
+                    actions_taken=["emergency_contact_email_delivered"],
                 ),
             )
 
@@ -1074,6 +1111,15 @@ def _parse_contacts(raw) -> list[Contact]:
         name = str(entry.get("name") or "").strip()[:100]
         if not name:
             raise HTTPException(status_code=400, detail="Every contact needs a name.")
+        channel = str(entry.get("channel") or "phone").strip()[:20] or "phone"
+        destination = str(entry.get("destination") or "").strip()[:320]
+        if channel == "email" and (
+            "@" not in destination or "." not in destination.rsplit("@", 1)[-1]
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{name} needs a valid emergency email address.",
+            )
 
         tiers: list[Tier] = []
         for value in entry.get("tiers") or []:
@@ -1088,7 +1134,8 @@ def _parse_contacts(raw) -> list[Contact]:
                 relation=str(entry.get("relation") or "").strip()[:100],
                 # Defaults to phone: an unreachable channel is worse than a
                 # wrong-but-dialable one on the tier-5 path.
-                channel=str(entry.get("channel") or "phone").strip()[:20] or "phone",
+                channel=channel,
+                destination=destination,
                 # Position comes from the submitted ORDER, not from a
                 # client-supplied `order` field. That makes ties and gaps
                 # unrepresentable rather than merely unlikely.

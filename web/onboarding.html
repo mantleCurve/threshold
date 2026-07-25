@@ -210,8 +210,8 @@
         <p class="promise__num">Step two</p>
         <h2 class="h2 display" id="contacts-h">Who gets reached, and in what order</h2>
         <p class="prose">
-          Reached from the top down. If the first person doesn't answer within
-          thirty seconds, the next one is called.
+          At tiers 4 and 5, Threshold sends emergency email alerts from the top
+          down and records each confirmed delivery. It does not place phone calls.
         </p>
         <ol class="timeline" id="contact-tree" aria-live="polite">
           <!-- JS renders from profile.contacts -->
@@ -219,6 +219,28 @@
         <div class="row">
           <button type="button" class="btn" id="add-contact">Add someone</button>
         </div>
+        <form class="card stack" id="contact-form" hidden>
+          <div class="field">
+            <label for="contact-name">Full name</label>
+            <input class="input" id="contact-name" name="contact_name" maxlength="100" required>
+          </div>
+          <div class="field">
+            <label for="contact-relation">Relationship</label>
+            <input class="input" id="contact-relation" name="contact_relation"
+                   maxlength="100" placeholder="Friend, parent, sponsor">
+          </div>
+          <div class="field">
+            <label for="contact-email">Email address</label>
+            <input class="input" id="contact-email" name="contact_email"
+                   type="email" maxlength="320" autocomplete="email" required>
+            <p class="hint">Used only for Tier 4 and Tier 5 emergency alerts.</p>
+          </div>
+          <div class="row">
+            <button type="submit" class="btn btn--primary">Add emergency contact</button>
+            <button type="button" class="btn btn--quiet" id="cancel-contact">Cancel</button>
+          </div>
+          <p class="error-text" id="contact-error" role="alert" hidden></p>
+        </form>
       </section>
 
       <!-- ---------------------------------------------------------------- 3 -

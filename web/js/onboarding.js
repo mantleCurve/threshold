@@ -278,6 +278,13 @@ function collectProfile() {
   PROFILE_FIELDS.forEach((f) => read(f, profile));
 
   profile.ladder = ladder;
+  profile.contacts = editableContacts.map((contact, index) => ({
+    name: contact.name,
+    relation: contact.relation,
+    channel: 'email',
+    destination: contact.destination,
+    tiers: [4, 5],
+  }));
   return { ladder, profile };
 }
 
@@ -318,6 +325,7 @@ async function saveLadder() {
   if (res.ok) {
     savedProfile = res.data.profile || profile;
     applyProfile(savedProfile);
+    renderContacts(savedProfile.contacts || []);
     announce('Saved. This is in effect now.');
     notice('');
     return;
@@ -351,6 +359,8 @@ const TIER_NAMES = [
   'Baseline', 'Elevated', 'Craving', 'Active use', 'Medical emergency', 'Unresponsive',
 ];
 
+let editableContacts = [];
+
 /**
  * Render the contact tree from the profile.
  *
@@ -365,24 +375,40 @@ function renderContacts(contacts) {
   const host = document.getElementById('contact-tree');
   if (!host) return;
 
-  if (!contacts?.length) {
+  if (Array.isArray(contacts)) {
+    editableContacts = contacts
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((contact) => ({
+        name: String(contact.name || ''),
+        relation: String(contact.relation || ''),
+        channel: String(contact.channel || 'email'),
+        destination: String(contact.destination || ''),
+      }));
+  }
+
+  if (!editableContacts.length) {
     host.innerHTML =
-      '<li><p>Nobody is on your tree yet. At tier 4 the system will still call ' +
-      '911 — but it will have no one of yours to reach.</p></li>';
+      '<li><p>No emergency contacts yet. Add someone who should receive a ' +
+      'verified email alert at Tier 4 or Tier 5.</p></li>';
     return;
   }
 
-  host.innerHTML = contacts
-    .slice()
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map((c) => {
-      const tiers = (c.tiers || [])
-        .map((t) => `${t} ${TIER_NAMES[t] || ''}`.trim())
-        .join(', ');
+  host.innerHTML = editableContacts
+    .map((c, index) => {
       return `
         <li>
           <p><strong>${escapeHtml(c.name)}</strong> · ${escapeHtml(c.relation)}</p>
-          <p class="hint">${escapeHtml(c.channel)}${tiers ? ` · reached at tier ${escapeHtml(tiers)}` : ''}</p>
+          <p class="hint">${escapeHtml(c.destination)} · emailed at Tier 4 and Tier 5</p>
+          <div class="row">
+            <button type="button" class="btn btn--quiet" data-contact-up="${index}"
+                    ${index === 0 ? 'disabled' : ''}>Move up</button>
+            <button type="button" class="btn btn--quiet" data-contact-down="${index}"
+                    ${index === editableContacts.length - 1 ? 'disabled' : ''}>Move down</button>
+            <button type="button" class="btn btn--quiet" data-contact-remove="${index}">
+              Remove
+            </button>
+          </div>
         </li>`;
     })
     .join('');
@@ -628,16 +654,61 @@ function initControls() {
       });
     });
 
-  // Adding a contact needs a server endpoint this build does not have. Rather
-  // than a button that appears to work and does nothing, it says what it is.
-  // A dead control on this page would undercut the promise the page is making.
   const add = document.getElementById('add-contact');
-  if (add) {
-    add.addEventListener('click', () => {
-      announce('Contacts are seeded for this demo and are not editable here yet. ' +
-               'Everything else on this page saves.', true);
-    });
-  }
+  const form = document.getElementById('contact-form');
+  const error = document.getElementById('contact-error');
+  const setContactFormOpen = (open) => {
+    if (!form) return;
+    form.hidden = !open;
+    if (error) { error.hidden = true; error.textContent = ''; }
+    if (open) document.getElementById('contact-name')?.focus();
+    else form.reset();
+  };
+
+  add?.addEventListener('click', () => setContactFormOpen(true));
+  document.getElementById('cancel-contact')
+    ?.addEventListener('click', () => setContactFormOpen(false));
+
+  form?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = document.getElementById('contact-name')?.value.trim() || '';
+    const relation = document.getElementById('contact-relation')?.value.trim() || '';
+    const destination = document.getElementById('contact-email')?.value.trim() || '';
+    if (!name || !destination || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(destination)) {
+      if (error) {
+        error.textContent = 'Enter a name and a valid email address.';
+        error.hidden = false;
+      }
+      return;
+    }
+    editableContacts.push({ name, relation, channel: 'email', destination });
+    renderContacts();
+    setContactFormOpen(false);
+    announce('Emergency contact added but not saved yet. Press "Save my ladder".');
+  });
+
+  document.getElementById('contact-tree')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    const remove = button.dataset.contactRemove;
+    const up = button.dataset.contactUp;
+    const down = button.dataset.contactDown;
+    if (remove !== undefined) {
+      editableContacts.splice(Number(remove), 1);
+    } else if (up !== undefined) {
+      const index = Number(up);
+      [editableContacts[index - 1], editableContacts[index]] =
+        [editableContacts[index], editableContacts[index - 1]];
+    } else if (down !== undefined) {
+      const index = Number(down);
+      [editableContacts[index], editableContacts[index + 1]] =
+        [editableContacts[index + 1], editableContacts[index]];
+    } else {
+      return;
+    }
+    renderContacts();
+    announce('Contact order changed but not saved yet. Press "Save my ladder".');
+  });
 
   document.getElementById('logout')?.addEventListener('click', async () => {
     await request('/api/auth/logout', { method: 'POST' });

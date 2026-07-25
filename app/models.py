@@ -81,7 +81,8 @@ class TriageResult(BaseModel):
 class Contact(BaseModel):
     name: str
     relation: str
-    channel: str  # phone / sms / push — display only in this build
+    channel: str
+    destination: str = ""
     order: int
     tiers: list[Tier]  # tiers at which this contact is reached
 

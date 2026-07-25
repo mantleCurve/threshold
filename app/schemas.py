@@ -313,6 +313,7 @@ class ContactUpdate(_StrictBody):
     name: str = Field(min_length=1, max_length=100)
     relation: str = Field(default="", max_length=100)
     channel: Literal["phone", "sms", "email"] = "phone"
+    destination: str = Field(default="", max_length=320)
     tiers: list[Tier] = Field(default_factory=list, max_length=6)
 
 
