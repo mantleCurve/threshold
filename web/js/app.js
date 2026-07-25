@@ -741,7 +741,14 @@ async function sendUtterance(text) {
     // Tier 2 is where the Memory Vault earns its place.
     if (res.triage?.tier === 2) loadVaultClip(text);
   } catch (err) {
-    addSystemNote('Could not reach the server. The emergency numbers still work.');
+    const fallback =
+      'Threshold could not reach the server. If you may be in immediate danger, ' +
+      'call 911 now. You can also call or text 988 for crisis support.';
+    addSystemNote(fallback);
+    // Use the device directly on a network failure. Routing this through the
+    // cloud voice path would retry the service that just failed before falling
+    // back, adding silence at the worst possible moment.
+    speakInBrowser(fallback, { loud: true });
   }
 }
 
@@ -783,7 +790,10 @@ function addTurn(who, text, live) {
 function addSystemNote(text) {
   if (!text) return;
   const el = document.getElementById('system-notice');
-  if (el) el.textContent = text;
+  if (el) {
+    el.textContent = text;
+    el.hidden = false;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
