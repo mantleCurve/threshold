@@ -243,7 +243,7 @@ async def auth_register(body: dict = Body(...)) -> JSONResponse:
 
     try:
         user = auth.register(username, password, role)
-    except ValueError as exc:
+    except (ValueError, auth.AuthError) as exc:
         # Surfaces "that username is taken" and similar. Safe to reveal at
         # registration: the user is choosing a name and needs to know it collided.
         raise HTTPException(status_code=409, detail=str(exc))
@@ -640,6 +640,49 @@ async def get_caregiver_brief(request: Request) -> dict:
     return payload
 
 
+@app.post("/api/profile")
+async def post_profile(request: Request, body: dict = Body(...)) -> dict:
+    """Save profile and ladder settings from onboarding.
+
+    This is how the user exercises PRD P3 — they own the escalation thresholds.
+    Without it the ladder table is a display of a promise rather than the promise
+    itself, so the endpoint is load-bearing for the product's central claim.
+
+    Tier 4 and Tier 5 visibility are deliberately NOT writable here. They are the
+    one thing the user cannot switch off, disclosed at onboarding and stated in
+    the Terms. Accepting them from the client would make that disclosure a lie
+    even if the UI never sent them.
+    """
+    user_id = _require_own_profile(request)
+    profile = store.get_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile to update.")
+
+    # Whitelist the fields onboarding is allowed to change. Anything else in the
+    # body is ignored rather than merged, so a crafted request cannot rewrite
+    # parts of the record this form has no business touching.
+    for field in ("address", "unit", "entry_code", "cross_street", "state_code"):
+        if field in body and isinstance(body[field], str):
+            setattr(profile, field, body[field][:200])
+
+    if isinstance(body.get("naloxone_on_hand"), bool):
+        profile.naloxone_on_hand = body["naloxone_on_hand"]
+
+    ladder = body.get("ladder") or {}
+    for field in ("tier_2_visible_to_caregiver", "tier_3_visible_to_caregiver"):
+        if isinstance(ladder.get(field), bool):
+            setattr(profile.ladder, field, ladder[field])
+    if isinstance(ladder.get("silence_seconds_to_escalate"), int):
+        # Bounded: a user may tune how long silence waits, but not disable it by
+        # setting it to something that never fires.
+        profile.ladder.silence_seconds_to_escalate = max(
+            5, min(300, ladder["silence_seconds_to_escalate"])
+        )
+
+    store.put_profile(user_id, profile)
+    return {"ok": True, "profile": profile.model_dump(mode="json")}
+
+
 @app.post("/api/reset")
 async def post_reset() -> dict:
     """Restore seeded demo state, so an evaluator can run the whole story again."""
@@ -708,7 +751,36 @@ def _page(name: str) -> FileResponse:
 
 
 @app.get("/")
-async def page_index():
+async def page_root(request: Request):
+    """The front door.
+
+    Serves the public homepage to a visitor with no session, and the app itself
+    to someone signed in. A stranger — a judge, a family member deciding whether
+    to trust this, someone who followed a link — should land on a page that
+    explains what this is, not inside another person's live recovery surface with
+    their tier, their event history, and their contact tree on screen.
+
+    Signing in then lands you straight in the app, because someone who has an
+    account does not need the pitch.
+    """
+    try:
+        from app import auth
+
+        if auth.user_from_request(request):
+            return _page("index.html")
+    except Exception:
+        pass
+    return _page("home.html")
+
+
+@app.get("/app")
+async def page_app():
+    """The app surface at a stable URL.
+
+    `/` is conditional, which makes it a poor thing to link to or bookmark. This
+    route always serves the app regardless of session, so the homepage's
+    "Open the app" button and the post-login redirect have somewhere fixed to go.
+    """
     return _page("index.html")
 
 

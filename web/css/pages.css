@@ -555,6 +555,25 @@
   text-transform: uppercase;
 }
 
+/* Sticky save bar. Fully opaque with a real top border and a bleed to the pane
+   edges, so table rows scroll UNDER it cleanly instead of ghosting through. */
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: var(--sp-4) 0;
+  margin-top: var(--sp-6);
+  background: var(--canvas);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 24px -12px var(--canvas);
+  padding-bottom: max(var(--sp-4), env(safe-area-inset-bottom));
+}
+
 /* The tuning table. Locked rows (tiers 4 and 5) are shown, not hidden: the
    user must SEE that two rungs are not theirs to switch off. Hiding them
    would be the dishonest choice and this page is the trust transaction. */

@@ -21,8 +21,10 @@
 <title>Your ladder — Threshold</title>
 <meta name="color-scheme" content="dark">
 <link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/light.css">
 <link rel="stylesheet" href="/static/css/tiers.css">
 <link rel="stylesheet" href="/static/css/pages.css">
+<script src="/static/js/theme.js"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to your ladder</a>
@@ -42,7 +44,8 @@
       </nav>
       <div class="row">
         <span class="badge" id="ai-status" data-ai-status>Checking AI</span>
-        <button type="button" class="btn btn--quiet" id="logout">Sign out</button>
+        <span data-theme-toggle></span>
+<button type="button" class="btn btn--quiet" id="logout">Sign out</button>
       </div>
     </div>
   </aside>
@@ -290,8 +293,12 @@
         </ul>
       </section>
 
-      <div class="row-between" style="position: sticky; bottom: 0; padding: var(--sp-4) 0;
-                                      background: linear-gradient(transparent, var(--canvas) 30%);">
+      <!-- The save bar is sticky so it is always reachable on a long page, but
+           it is a full-width opaque bar rather than a floating button. A
+           translucent floating control sat on top of table rows mid-scroll and
+           made the promises underneath unreadable — unacceptable on the one
+           page whose entire job is that the user reads it. -->
+      <div class="save-bar">
         <p class="hint" id="save-hint">Changes take effect immediately.</p>
         <button type="button" class="btn btn--primary btn--lg" id="save-ladder">Save my ladder</button>
       </div>

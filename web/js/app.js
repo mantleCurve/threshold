@@ -75,6 +75,17 @@ let currentTier = 0;
  */
 function renderTier(tier, reason) {
   currentTier = tier;
+
+  // Write to BOTH <html> and <body>.
+  //
+  // The stylesheets select on [data-tier] unqualified, and the markup declares
+  // the attribute on <html> as its pre-script floor. Writing only to <body>
+  // therefore left the real tier on the inner element while <html> kept its
+  // stale initial value — the ladder never repainted, and at Tier 0 an
+  // ancestor still matching a higher tier could paint the emergency takeover
+  // over an untouched page. Setting both keeps the floor and the runtime value
+  // in agreement, which is the invariant the CSS was written against.
+  document.documentElement.dataset.tier = String(tier);
   document.body.dataset.tier = String(tier);
 
   // The ladder rail: mark the active rung for sighted users and for AT.

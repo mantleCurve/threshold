@@ -153,7 +153,13 @@ use the token, and it escalates for free.
 
 ## 3. Components
 
-`base.css` — `.card`, `.btn` (`--primary` `--quiet` `--danger` `--block` `--lg`),
+**`.btn--emergency` vs `.btn--primary`.** `--primary` fills with the *live*
+accent, so at tier 0 it is calm teal. Never use it for a control that calls
+emergency services — a 911 button must not inherit a reassuring colour from a
+low tier. `.btn--emergency` is always red at every tier. Used on the caregiver
+alert; `.call-911` and `.takeover__action` are the same idea at larger sizes.
+
+`base.css` — `.card`, `.btn` (`--primary` `--emergency` `--quiet` `--danger` `--block` `--lg`),
 `.field` / `.input` / `.switch`, `.badge` (`--live` `--fallback` `--offline`),
 `.notice` (`--warn` `--error` `--ok`), `.rail` + `.ladder`, `.shell`, `.pane`,
 `.stack` / `.row`, `.label` / `.lede` / `.prose` / `.data` / `.voice`.

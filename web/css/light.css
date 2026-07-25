@@ -1,0 +1,205 @@
+/* ============================================================================
+   THRESHOLD — light.css
+   The light theme.
+
+   Load order: base.css -> light.css -> tiers.css -> pages.css
+   (light.css must come BEFORE tiers.css so the tier accent ramp still wins.)
+
+   HOW THIS WORKS
+   Light mode rebinds the SAME tokens base.css defines. It introduces no new
+   variables, no new selectors for components, and no per-page overrides. If a
+   component was authored against the tokens — which the design system requires —
+   it themes for free. Anything that needs a special case in here is a component
+   that hardcoded a colour, and the fix belongs there, not in this file.
+
+   ACTIVATION
+     [data-theme="light"]  — explicit user choice, wins over everything
+     [data-theme="dark"]   — explicit user choice
+     no attribute          — follow the operating system
+
+   WHY LIGHT MODE IS NOT JUST "INVERT THE DARK ONE"
+   Dark mode carries meaning through *glow*: an accent lifts off a near-black
+   canvas. On white, glow reads as haze and the same accent looks washed out and
+   less urgent. So on light the accents are DARKENED rather than reused — the
+   tier colours keep their hue and their relative ordering, but each is shifted
+   to hold its contrast ratio against a white surface. Tier 4 red in particular
+   must stay unmistakably alarming on a bright screen in daylight, which is
+   exactly the condition a light theme exists for.
+   ========================================================================= */
+
+/* --------------------------------------------------------- explicit light - */
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* -- canvas & surfaces -------------------------------------------------
+     Warm off-white, never pure #fff. Pure white at full brightness is
+     genuinely painful at 3am, which is a time this product is used. The
+     surfaces step *up* in lightness as they nest, the mirror of dark mode
+     where they step up in darkness. */
+  --canvas:      #f7f8fa;
+  --canvas-deep: #eef1f5;
+  --surface:     #ffffff;
+  --surface-2:   #f4f6f9;
+  --surface-3:   #eaeef3;
+
+  --line:        #dde3ea;
+  --line-strong: #c2ccd8;
+
+  /* -- ink ---------------------------------------------------------------
+     Contrast ratios measured against --surface (#ffffff), the worst case:
+       --ink    #131a22  ~16.4:1
+       --ink-2  #414e5e  ~8.9:1
+       --ink-3  #5d6b7c  ~5.2:1   (floor; labels only, still > 4.5:1 AA)
+     These mirror the dark theme's ratios rather than its hex values, so text
+     hierarchy reads identically in both themes. */
+  --ink:    #131a22;
+  --ink-2:  #414e5e;
+  --ink-3:  #5d6b7c;
+
+  /* -- the accent ramp ---------------------------------------------------
+     Same hues as dark mode, darkened to hold contrast on white. Each is
+     >= 4.5:1 against --surface so it can carry text, not just decoration.
+     The ordering (teal -> sage -> gold -> amber -> red) is preserved, because
+     that progression is how the ladder is read pre-literately. */
+  --accent-0: #0f766e;  /* baseline     — teal   ~4.9:1 */
+  --accent-1: #3f7a34;  /* elevated     — sage   ~4.9:1 */
+  --accent-2: #8a6410;  /* craving      — gold   ~4.8:1 */
+  --accent-3: #a4501a;  /* active use   — amber  ~4.9:1 */
+  --accent-4: #c02617;  /* emergency    — red    ~5.9:1 */
+  --accent-5: #b31c10;  /* unresponsive — red    ~6.5:1 */
+
+  --accent:      var(--accent-0);
+  /* Text placed ON a filled accent surface. White, because every accent above
+     is dark enough to carry white text at AA. */
+  --accent-ink:  #ffffff;
+
+  --danger: #c02617;
+  --ok:     #0f766e;
+
+  /* Shadows on light surfaces must be soft and low-opacity. The dark theme's
+     heavy shadow reads as dirt on white. */
+  --shadow-1: 0 1px 0 rgb(255 255 255 / 0.8) inset,
+              0 1px 3px rgb(16 24 40 / 0.07),
+              0 6px 16px -8px rgb(16 24 40 / 0.12);
+  --shadow-2: 0 18px 44px -16px rgb(16 24 40 / 0.22);
+}
+
+/* Atmosphere: the dark theme paints a cold light source and film grain over a
+   near-black canvas. Both are wrong on white — the glow becomes a smudge and
+   the grain becomes noise. Light mode gets a single, very faint accent wash and
+   no grain at all. */
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(120% 70% at 12% -10%,
+      color-mix(in oklab, var(--accent) 7%, transparent), transparent 60%);
+}
+[data-theme="light"] body::after { opacity: 0; }
+
+/* The tier takeover fills the screen at Tier 4/5. On light it uses the deep
+   canvas rather than plain white so the single red action still dominates. */
+[data-theme="light"] .takeover { background: var(--canvas-deep); }
+
+/* Form controls: dark mode inverts inputs to sit darker than the surface.
+   On light they must sit on white with a real border, or they disappear. */
+[data-theme="light"] .field input,
+[data-theme="light"] .field textarea,
+[data-theme="light"] .field select {
+  background: var(--surface);
+  border-color: var(--line-strong);
+}
+
+/* The masthead is translucent over the canvas in both themes; the blur tint
+   has to follow the theme or it reads as a grey band. */
+[data-theme="light"] .masthead {
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+}
+
+[data-theme="light"] .public-footer { background: var(--canvas-deep); }
+
+/* -------------------------------------------------- system-preference light */
+/* Applies the identical block when the OS asks for light and the user has made
+   no explicit choice. Duplicated rather than factored into a shared custom
+   property set because :root cannot be conditionally aliased in plain CSS —
+   and a build step to avoid this duplication is not worth adding. */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    --canvas:      #f7f8fa;
+    --canvas-deep: #eef1f5;
+    --surface:     #ffffff;
+    --surface-2:   #f4f6f9;
+    --surface-3:   #eaeef3;
+
+    --line:        #dde3ea;
+    --line-strong: #c2ccd8;
+
+    --ink:    #131a22;
+    --ink-2:  #414e5e;
+    --ink-3:  #5d6b7c;
+
+    --accent-0: #0f766e;
+    --accent-1: #3f7a34;
+    --accent-2: #8a6410;
+    --accent-3: #a4501a;
+    --accent-4: #c02617;
+    --accent-5: #b31c10;
+
+    --accent:     var(--accent-0);
+    --accent-ink: #ffffff;
+
+    --danger: #c02617;
+    --ok:     #0f766e;
+
+    --shadow-1: 0 1px 0 rgb(255 255 255 / 0.8) inset,
+                0 1px 3px rgb(16 24 40 / 0.07),
+                0 6px 16px -8px rgb(16 24 40 / 0.12);
+    --shadow-2: 0 18px 44px -16px rgb(16 24 40 / 0.22);
+  }
+
+  :root:not([data-theme]) body::before {
+    background:
+      radial-gradient(120% 70% at 12% -10%,
+        color-mix(in oklab, var(--accent) 7%, transparent), transparent 60%);
+  }
+  :root:not([data-theme]) body::after { opacity: 0; }
+  :root:not([data-theme]) .takeover { background: var(--canvas-deep); }
+  :root:not([data-theme]) .masthead {
+    background: color-mix(in oklab, var(--surface) 82%, transparent);
+  }
+  :root:not([data-theme]) .public-footer { background: var(--canvas-deep); }
+  :root:not([data-theme]) .field input,
+  :root:not([data-theme]) .field textarea,
+  :root:not([data-theme]) .field select {
+    background: var(--surface);
+    border-color: var(--line-strong);
+  }
+}
+
+/* ------------------------------------------------------------ the toggle - */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--step-000);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-weight: 600;
+  cursor: pointer;
+}
+.theme-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+
+/* The control is hidden entirely at Tier 3 and above. At the point where
+   someone may be overdosing, a theme preference is noise competing with the one
+   thing on screen that matters. */
+[data-tier="3"] .theme-toggle,
+[data-tier="4"] .theme-toggle,
+[data-tier="5"] .theme-toggle { display: none; }

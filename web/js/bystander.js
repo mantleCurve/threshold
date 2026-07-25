@@ -125,7 +125,7 @@ async function loadSamaritan(stateCode) {
     // true in every state that has a Good Samaritan law, so the page is still
     // doing its job with the network down.
     host.innerHTML =
-      '<span class="unverified">could not load your state\'s statute</span> ' +
+      '<span class="unverified badge badge--fallback">could not load your state\'s statute</span> ' +
       'The advice above still stands: call, stay, and say what you see.';
     return;
   }
@@ -134,7 +134,7 @@ async function loadSamaritan(stateCode) {
   // guessing — a guess here is a legal claim we cannot stand behind.
   if (rec.unknown) {
     host.innerHTML =
-      `<span class="unverified">no reviewed summary for ${escapeHtml(rec.state_code)}</span> ` +
+      `<span class="unverified badge badge--fallback">no reviewed summary for ${escapeHtml(rec.state_code)}</span> ` +
       escapeHtml(rec.summary);
     return;
   }
@@ -144,7 +144,7 @@ async function loadSamaritan(stateCode) {
   // it is never shown as settled fact.
   const badge = rec.verified
     ? ''
-    : '<span class="unverified">unverified — confirm locally</span> ';
+    : '<span class="unverified badge badge--fallback">unverified — confirm locally</span> ';
 
   host.innerHTML = `
     ${badge}
@@ -154,7 +154,8 @@ async function loadSamaritan(stateCode) {
     ${rec.does_not_cover
       ? `<br><em>What it does not cover:</em> ${escapeHtml(rec.does_not_cover)}`
       : ''}
-    ${rec.citation ? `<br><small>${escapeHtml(rec.citation)}</small>` : ''}`;
+    ${rec.naloxone_note ? `<br>${escapeHtml(rec.naloxone_note)}` : ''}
+    ${rec.source_note ? `<br><small>${escapeHtml(rec.source_note)}</small>` : ''}`;
 
   // Read the one-line version aloud. A bystander is looking at a person, not a
   // phone, and this is the sentence most likely to keep them in the room.
