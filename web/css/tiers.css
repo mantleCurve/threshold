@@ -1,0 +1,370 @@
+/* ============================================================================
+   THRESHOLD — tiers.css
+   THE ESCALATION LADDER AS A STYLESHEET.
+
+   ---------------------------------------------------------------------------
+   THE TRANSFORMATION RULE (the one idea this whole product's UI rests on)
+   ---------------------------------------------------------------------------
+   JS sets exactly one attribute:   <html data-tier="0..5">
+   Nothing else. No class juggling, no per-page branching, no inline styles.
+
+   That attribute rebinds four variables, and everything downstream follows:
+
+     --accent   hue    calm teal -> gold -> amber -> red      (meaning, not decoration)
+     --density  space  1.00 -> 1.10 -> 1.25 -> 1.5 -> 2.0     (the room to breathe)
+     --scale    type   1.00 -> 1.08 -> 1.2 -> 1.5             (the voice getting louder)
+     --chrome   0 or 1 whether navigation/secondary UI exists at all
+
+   As the tier climbs the interface INVERTS: Tier 0 is dense, quiet, and
+   information-rich — a dashboard you can browse. Tier 4 is one enormous button
+   and nothing else. The information does not get rearranged; it gets REMOVED.
+   That is deliberate. At Tier 4 the user may be unable to read, so every pixel
+   that is not the single life-saving action is a distraction that could kill
+   them. Choice is a luxury of low tiers.
+
+   ---------------------------------------------------------------------------
+   COLOUR REASONING (why these hues, in this order)
+   ---------------------------------------------------------------------------
+   The accent is the ONLY chromatic element in the product; everything else is
+   neutral. So the accent's hue IS the status indicator — a user recognises the
+   state from across a dark room, pre-literately, before reading a word.
+
+     T0 teal    #3fbf9b  steady, medical-calm, "nothing is happening"
+     T1 sage    #7cc386  a nudge, adjacent to teal — deliberately barely different,
+                         because Tier 1 must not feel like an accusation
+     T2 gold    #e0b457  the first warm hue; attention, not alarm
+     T3 amber   #ee8b47  urgency without the finality of red
+     T4 red     #ff5a4e  emergency. First appearance of red ANYWHERE in the app,
+                         so it has never been diluted by decorative use
+     T5 red     #ff3b30  same family, deeper; Tier 5 is Tier 4 with no user left
+                         to help, so it reads as continuation, not a new state
+
+   We do NOT go teal->green->yellow->orange->red like a traffic light: that is
+   the cliché, and green/red alone fails for the ~8% of men with deuteranopia.
+   Every tier is ALSO distinguished by number, name, spacing, and type size, so
+   colour is never the sole carrier of meaning (WCAG 1.4.1 Use of Color).
+
+   All accent values were picked to hold >=4.5:1 against --canvas as text, and
+   each is paired with a near-black --accent-ink for use as a filled surface.
+   ========================================================================= */
+
+/* --------------------------------------------------------------------------
+   TIER 0 — BASELINE.  "Nothing is wrong. Here is your life."
+   Density 1, scale 1, chrome on. Maximum information: check-ins, tolerance
+   window, contacts, log. This is the only tier where browsing is appropriate.
+   -------------------------------------------------------------------------- */
+[data-tier="0"] {
+  --accent: var(--accent-0);
+  --accent-ink: #04140f;
+  --density: 1;
+  --scale: 1;
+  --chrome: 1;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 1 — ELEVATED.  "We noticed something. No alarm."
+   Almost identical to Tier 0 on purpose. A missed check-in must not feel like
+   being caught. The only change is a slightly warmer accent and a hair more
+   space — felt, not read.
+   -------------------------------------------------------------------------- */
+[data-tier="1"] {
+  --accent: var(--accent-1);
+  --accent-ink: #06170a;
+  --density: 1.05;
+  --scale: 1.04;
+  --chrome: 1;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 2 — CRAVING.  "You said something. We're listening now."
+   First real transformation. Secondary panels collapse, the conversation and
+   the voice control take the surface. Type steps up because attention is
+   narrowing and the user may be distressed.
+   -------------------------------------------------------------------------- */
+[data-tier="2"] {
+  --accent: var(--accent-2);
+  --accent-ink: #1a1200;
+  --density: 1.14;
+  --scale: 1.1;
+  --chrome: 1;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 3 — ACTIVE USE.  "You are using. We are not leaving."
+   Non-essential surfaces are gone. What remains: the ladder, the voice control,
+   the transcript, and harm-reduction actions. Nothing to browse, nothing to
+   configure. Settings links are removed from the DOM's reach via --chrome: 0.
+   -------------------------------------------------------------------------- */
+[data-tier="3"] {
+  --accent: var(--accent-3);
+  --accent-ink: #1c0d02;
+  --density: 1.35;
+  --scale: 1.25;
+  --chrome: 0;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 4 — MEDICAL EMERGENCY.  ONE BUTTON.
+   Everything above is stripped. Designed for a person who cannot read: the
+   button is the size of the viewport, the label is enormous, and there is no
+   navigation, no card, no secondary action within reach of a panicked thumb.
+   -------------------------------------------------------------------------- */
+[data-tier="4"] {
+  --accent: var(--accent-4);
+  --accent-ink: #1a0402;
+  --density: 1.7;
+  --scale: 1.5;
+  --chrome: 0;
+  /* The canvas itself warms. At 3am this is the whole room changing colour. */
+  --canvas: #14090a;
+  --canvas-deep: #0d0505;
+  --surface: #1d0d0d;
+  --surface-2: #251111;
+  --surface-3: #2e1615;
+  --line: #40201e;
+  --line-strong: #5d2f2b;
+}
+
+/* --------------------------------------------------------------------------
+   TIER 5 — UNRESPONSIVE.  The user is not the audience any more.
+   The phone is now a beacon for whoever picks it up. Same takeover as Tier 4,
+   but the copy and the pulse are addressed to a stranger in the room, and the
+   "I'm okay" rescind is gone — an unresponsive person cannot press it, so
+   offering it would only let a bystander cancel a real emergency.
+   -------------------------------------------------------------------------- */
+[data-tier="5"] {
+  --accent: var(--accent-5);
+  --accent-ink: #1a0302;
+  --density: 1.7;
+  --scale: 1.5;
+  --chrome: 0;
+  --canvas: #170708;
+  --canvas-deep: #0e0404;
+  --surface: #200b0c;
+  --surface-2: #2a1011;
+  --surface-3: #331414;
+  --line: #451c1d;
+  --line-strong: #642829;
+}
+
+/* ==========================================================================
+   MECHANISM 1 — CHROME REMOVAL
+   Anything marked [data-chrome] is furniture: nav, settings, secondary cards,
+   demo controls. It exists at tiers 0-2 and is REMOVED (display:none, not just
+   hidden) at tiers 3+. display:none also pulls it out of the accessibility
+   tree and out of the tab order, so a screen-reader user at Tier 4 lands on
+   the emergency action immediately instead of tabbing past dead navigation.
+   ========================================================================== */
+[data-tier="3"] [data-chrome],
+[data-tier="4"] [data-chrome],
+[data-tier="5"] [data-chrome] { display: none !important; }
+
+/* The inverse: elements that only exist once things are serious. */
+[data-when-tier] { display: none; }
+[data-tier="2"] [data-when-tier~="2"],
+[data-tier="3"] [data-when-tier~="3"],
+[data-tier="4"] [data-when-tier~="4"],
+[data-tier="5"] [data-when-tier~="5"] { display: revert; }
+
+/* ==========================================================================
+   MECHANISM 2 — TYPE SCALING
+   Body copy and headings multiply by --scale. Anything the user must read
+   under duress grows automatically; labels and metadata deliberately do NOT,
+   so the hierarchy sharpens rather than everything inflating uniformly.
+   ========================================================================== */
+main { font-size: calc(var(--step-0) * var(--scale)); }
+.lede { font-size: calc(var(--step-2) * var(--scale)); }
+h1, .h1 { font-size: calc(var(--step-4) * var(--scale)); }
+h2, .h2 { font-size: calc(var(--step-3) * var(--scale)); }
+
+/* ==========================================================================
+   MECHANISM 3 — THE TAKEOVER (Tier 4 & 5)
+   A fixed full-viewport layer. `inert` is set by JS on the page behind it, so
+   focus physically cannot escape into the stripped UI.
+   ========================================================================== */
+
+.takeover {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--canvas);
+  padding: clamp(1rem, 3vw, 2rem);
+  /* Safe-area padding: a phone held one-handed by a panicking person must not
+     have the primary action under the home indicator. */
+  padding-bottom: max(clamp(1rem, 3vw, 2rem), env(safe-area-inset-bottom));
+}
+
+[data-tier="4"] .takeover,
+[data-tier="5"] .takeover {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: clamp(0.75rem, 2vh, 1.5rem);
+}
+
+/* A slow red breath behind everything. Not a strobe: strobing is a seizure
+   risk (WCAG 2.3.1 allows <3 flashes/sec; this is one cycle per 2.6s) and it
+   raises panic. This is a heartbeat — it signals "live, still running". */
+.takeover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 80% at 50% 0%, var(--accent-soft), transparent 68%);
+  animation: breathe 2600ms var(--ease) infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+/* Reduced motion: keep the atmosphere, drop the animation entirely. The
+   information was never carried by the movement, so nothing is lost. */
+@media (prefers-reduced-motion: reduce) {
+  .takeover::before { animation: none; opacity: 0.8; }
+}
+
+.takeover__head {
+  position: relative;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* The tier word, set as large as the viewport allows. This is the only thing
+   a non-reading user needs to pattern-match: a giant red word. */
+.takeover__tier {
+  font-family: var(--font-ui);
+  font-size: var(--step-6);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.takeover__reason {
+  font-family: var(--font-voice);
+  font-size: clamp(1rem, 2.6vw, 1.375rem);
+  color: var(--ink);
+  max-width: 34ch;
+  margin-inline: auto;
+  text-wrap: balance;
+}
+
+/* ---- THE BUTTON ---------------------------------------------------------
+   One action. It fills all remaining vertical space, so it is impossible to
+   miss and impossible to mis-tap. Minimum height is 40svh even on a landscape
+   phone. Label is set in the largest type in the entire product.
+   ------------------------------------------------------------------------ */
+.takeover__action {
+  position: relative;
+  display: grid;
+  place-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 40svh;
+  padding: var(--sp-5);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: clamp(8px, 2vw, 20px);
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 60%, white),
+              0 30px 90px -30px var(--accent);
+  transition: transform var(--dur-1) var(--ease), filter var(--dur-1) var(--ease);
+}
+.takeover__action:hover { filter: brightness(1.06); }
+.takeover__action:active { transform: scale(0.99); }
+/* Focus ring must survive on a fully-saturated red fill — hence the dark inner
+   ring plus a white outer ring, visible against both the button and the page. */
+.takeover__action:focus-visible {
+  outline: 4px solid #fff;
+  outline-offset: -10px;
+  box-shadow: 0 0 0 4px var(--canvas-deep);
+}
+
+.takeover__action-label {
+  font-size: var(--step-8);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+}
+.takeover__action-sub {
+  font-size: clamp(0.9rem, 2.2vw, 1.25rem);
+  font-weight: 600;
+  opacity: 0.78;
+}
+
+/* ---- the one escape hatch ----------------------------------------------
+   Rescind ("I'm okay") is the ONLY secondary control at Tier 4, and it is
+   deliberately small, low-contrast-against-the-button, and placed at the far
+   bottom — reachable if you mean it, hard to hit by accident while panicking.
+   It is absent entirely at Tier 5 (see the selector below).
+   ------------------------------------------------------------------------ */
+.takeover__foot {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.takeover__rescind {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-2);
+  padding: 0.7em 1.4em;
+  min-height: 2.75rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--step-00);
+  cursor: pointer;
+}
+.takeover__rescind:hover { color: var(--ink); border-color: var(--ink-3); }
+[data-tier="5"] .takeover__rescind { display: none; }
+
+/* What the system already did, under the button. Two lines maximum. The user
+   is not expected to read it — it is there so a bystander who picks up the
+   phone knows help is already coming and does not waste seconds deciding. */
+.takeover__status {
+  position: relative;
+  text-align: center;
+  font-family: var(--font-data);
+  font-size: var(--step-00);
+  color: var(--ink-2);
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.takeover__status li { display: flex; align-items: center; gap: var(--sp-2); }
+.takeover__status li::before {
+  content: "";
+  width: 0.4rem; height: 0.4rem; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ==========================================================================
+   MECHANISM 4 — THE TIER CHANGE ITSELF
+   A judge should FEEL the escalation, not just see a new colour. On tier
+   change JS adds .tier-shift for one animation cycle: a single wash of the new
+   accent across the viewport. One event, ~700ms, never repeating.
+   ========================================================================== */
+.tier-shift::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  background: var(--accent);
+  animation: wash 700ms var(--ease) forwards;
+}
+@keyframes wash {
+  0%   { opacity: 0; }
+  22%  { opacity: 0.34; }
+  100% { opacity: 0; }
+}
+/* Reduced motion: no wash at all. The tier is announced in the aria-live
+   region regardless, so no information depends on this effect. */
+@media (prefers-reduced-motion: reduce) {
+  .tier-shift::after { display: none; }
+}

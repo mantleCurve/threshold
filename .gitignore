@@ -1,0 +1,16 @@
+# Secrets never enter the repo. The OpenRouter key lives only in the environment.
+.env
+*.env
+
+# Local state: the SQLite database and the generation cache are per-machine artifacts.
+data/*.db
+data/cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# macOS
+.DS_Store

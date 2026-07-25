@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<!--
+  LOGIN — /login
+  Surface: anyone. Purpose: never lock an evaluator out (CONTRACT ground rule 4).
+  Demo credentials are PRINTED on the page, PRE-FILLED in the form, and offered
+  as one-tap buttons. Three independent routes in; all three must work.
+  data-tier is pinned to 0 here: the auth pages are outside the ladder.
+-->
+<html lang="en" data-tier="0">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sign in — Threshold</title>
+<meta name="description" content="Threshold — substance-use recovery and overdose prevention.">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/tiers.css">
+<link rel="stylesheet" href="/css/pages.css">
+</head>
+<body>
+<a class="skip-link" href="#signin">Skip to sign in</a>
+
+<div class="auth">
+
+  <!-- LEFT: what this product is. Present on the auth pages so the ladder —
+       the spine of the whole UI — is legible before an account exists. -->
+  <aside class="auth__aside">
+    <div class="stack">
+      <p class="wordmark">Thresh<span>o</span>ld</p>
+      <p class="lede" style="max-width: 26ch;">
+        It watches for the moment things change, and it acts before you have to ask.
+      </p>
+    </div>
+
+    <div class="stack">
+      <h2 class="label" id="ladder-preview-h">The escalation ladder</h2>
+      <ol class="auth__ladder" aria-labelledby="ladder-preview-h">
+        <li><b>0</b><span>Baseline — nothing is happening.</span></li>
+        <li><b>1</b><span>Elevated — a check-in was missed.</span></li>
+        <li><b>2</b><span>Craving — you said something that matters.</span></li>
+        <li><b>3</b><span>Active use — we stay with you.</span></li>
+        <li><b>4</b><span>Medical emergency — one button.</span></li>
+        <li><b>5</b><span>Unresponsive — the phone calls for you.</span></li>
+      </ol>
+    </div>
+
+    <p class="hint" style="max-width: 34ch;">
+      Tiers 4 and 5 always reach your contacts. Everything below that is yours to set.
+    </p>
+  </aside>
+
+  <!-- RIGHT: the form. -->
+  <main class="auth__main" id="signin">
+    <div class="auth__form stack-loose">
+
+      <div class="stack-tight">
+        <h1 class="display" style="font-size: var(--step-4);">Sign in</h1>
+        <p class="hint">No account? <a href="/register" class="mark">Create one</a> — registration works end to end.</p>
+      </div>
+
+      <!--
+        DEMO CREDENTIALS — visible, selectable, and duplicated into the inputs
+        below. An evaluator who reads nothing can press Enter and be inside.
+      -->
+      <section class="creds" aria-labelledby="creds-h">
+        <h2 class="label" id="creds-h">Demo credentials — already filled in</h2>
+        <dl class="data">
+          <dt>Person in recovery</dt>
+          <dd><b>sam</b> / threshold</dd>
+          <dt>Caregiver</dt>
+          <dd><b>sarah</b> / threshold</dd>
+        </dl>
+        <div class="row">
+          <button type="button" class="btn btn--quiet" id="fill-user" data-demo-user="sam" data-demo-pass="threshold">
+            Sign in as Sam
+          </button>
+          <button type="button" class="btn btn--quiet" id="fill-caregiver" data-demo-user="sarah" data-demo-pass="threshold">
+            Sign in as Sarah
+          </button>
+        </div>
+      </section>
+
+      <!--
+        The form posts to /api/auth/login. novalidate so our own error copy is
+        used rather than the browser's; the JS agent owns submission.
+      -->
+      <form class="stack" id="login-form" method="post" action="/api/auth/login" novalidate>
+        <div class="field">
+          <label for="username">Username</label>
+          <input class="input" type="text" id="username" name="username" value="sam"
+                 autocomplete="username" required autocapitalize="none" spellcheck="false">
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input" type="password" id="password" name="password" value="threshold"
+                 autocomplete="current-password" required>
+        </div>
+
+        <!--
+          A11Y: role="alert" (implicit assertive live region) — a failed sign-in
+          must interrupt, because the user is blocked until they hear it.
+          Empty and hidden until the JS agent fills it.
+        -->
+        <p class="error-text" id="login-error" role="alert" hidden></p>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="login-submit">Sign in</button>
+      </form>
+
+      <!--
+        Bystander mode sits OUTSIDE the auth wall by design (PRD §3): a stranger
+        at an overdose must never be asked to make an account. It is on the
+        login page because that is where an un-authenticated person lands.
+      -->
+      <div class="notice notice--warn">
+        <div>
+          <strong>Someone is overdosing right now?</strong>
+          <a href="/bystander" class="mark">Open bystander mode</a> — no account, no sign-in, nothing to read first.
+        </div>
+      </div>
+
+      <!-- AI availability. Honest by contract: a fallback is never dressed as
+           a live generation. JS toggles the class and text. -->
+      <p><span class="badge" id="ai-status" data-ai-status>Checking AI status</span></p>
+
+    </div>
+  </main>
+</div>
+
+<script src="/js/auth.js" type="module"></script>
+</body>
+</html>

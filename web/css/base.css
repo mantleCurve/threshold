@@ -1,0 +1,627 @@
+/* ============================================================================
+   THRESHOLD — base.css
+   Tokens, reset, typography, and primitives.
+   Load order: base.css -> tiers.css -> pages.css
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- tokens - */
+
+:root {
+  color-scheme: dark;
+
+  /* -- canvas & surfaces -------------------------------------------------
+     A cold, blue-shifted near-black. Never pure #000: pure black on OLED
+     kills the sense of depth and makes the tier flood less legible. */
+  --canvas:      #0b0e12;
+  --canvas-deep: #070a0d;
+  --surface:     #121821;
+  --surface-2:   #18202a;
+  --surface-3:   #1f2833;
+
+  --line:        #222c37;
+  --line-strong: #35424f;
+
+  /* -- ink ---------------------------------------------------------------
+     All three pass 4.5:1 on --canvas and on --surface. --ink-3 is the floor;
+     nothing dimmer than this is ever used for text. */
+  --ink:    #e9eef4;   /* ~15.9:1 on canvas */
+  --ink-2:  #adbac8;   /* ~8.6:1  */
+  --ink-3:  #7d8fa1;   /* ~4.9:1  — minimum legible, labels only */
+
+  /* -- the accent ramp ---------------------------------------------------
+     One accent, rotated through hue as the ladder climbs. This is the only
+     colour that carries meaning. Everything else is neutral by design. */
+  --accent-0: #3fbf9b;  /* baseline    — teal, steady */
+  --accent-1: #7cc386;  /* elevated    — sage */
+  --accent-2: #e0b457;  /* craving     — gold */
+  --accent-3: #ee8b47;  /* active use  — amber */
+  --accent-4: #ff5a4e;  /* emergency   — red */
+  --accent-5: #ff3b30;  /* unresponsive*/
+
+  /* Live values. tiers.css rebinds these per [data-tier]. Author against
+     these, never against --accent-N directly. */
+  --accent:      var(--accent-0);
+  --accent-ink:  #04140f;               /* text on a filled accent surface */
+  --accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 42%, transparent);
+  --glow:        color-mix(in oklab, var(--accent) 30%, transparent);
+
+  --danger:  #ff5a4e;
+  --ok:      #3fbf9b;
+
+  /* -- type --------------------------------------------------------------
+     Two voices, deliberately different:
+       --font-voice  serif  = a person or Threshold speaking
+       --font-ui     sans   = the machine: state, labels, controls
+       --font-data   mono   = timestamps, tiers, the audit log
+     All three are system faces. No CDN, no webfont — this must work with the
+     network down, which is exactly when it matters most. */
+  --font-voice: Charter, "Bitstream Charter", "Iowan Old Style", "Sitka Text",
+                Palatino, "Palatino Linotype", Georgia, serif;
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+             "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono",
+               "Roboto Mono", Consolas, monospace;
+
+  --step-000: 0.6875rem;
+  --step-00:  0.78125rem;
+  --step-0:   0.9375rem;
+  --step-1:   1.0625rem;
+  --step-2:   1.3125rem;
+  --step-3:   1.625rem;
+  --step-4:   2.125rem;
+  --step-5:   clamp(2.5rem, 5vw, 3.25rem);
+  --step-6:   clamp(3rem, 8vw, 4.75rem);
+  --step-7:   clamp(3.5rem, 12vw, 7rem);
+  --step-8:   clamp(4rem, 17vw, 10rem);
+
+  --track-label: 0.14em;   /* uppercase micro-labels */
+  --track-tight: -0.015em; /* display sizes */
+
+  /* -- space -------------------------------------------------------------
+     --density is the single knob the escalation ladder turns. Tier 0 is
+     dense and information-rich; by tier 3 the same markup is airy. */
+  --density: 1;
+  --sp-1: calc(0.25rem * var(--density));
+  --sp-2: calc(0.5rem  * var(--density));
+  --sp-3: calc(0.75rem * var(--density));
+  --sp-4: calc(1rem    * var(--density));
+  --sp-5: calc(1.5rem  * var(--density));
+  --sp-6: calc(2rem    * var(--density));
+  --sp-7: calc(3rem    * var(--density));
+  --sp-8: calc(4.5rem  * var(--density));
+
+  --rail-w: 13.5rem;
+  --radius:    4px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 0 rgb(255 255 255 / 0.03) inset,
+              0 8px 24px -12px rgb(0 0 0 / 0.8);
+  --shadow-2: 0 24px 60px -20px rgb(0 0 0 / 0.85);
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-1: 140ms;
+  --dur-2: 320ms;
+  --dur-3: 800ms;
+}
+
+/* ----------------------------------------------------------------- reset - */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color var(--dur-3) var(--ease),
+              color var(--dur-3) var(--ease);
+}
+
+/* Atmosphere: a single cold light source above the ladder, plus a whisper of
+   grain so the flat black has a surface. Both are painted, not images. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 12% -10%, var(--accent-soft), transparent 62%),
+    radial-gradient(90% 60% at 92% 108%, rgb(255 255 255 / 0.025), transparent 60%);
+  transition: background var(--dur-3) var(--ease);
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+body > * { position: relative; z-index: 1; }
+
+h1, h2, h3, h4, p, figure, blockquote, dl, dd, ol, ul { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+img, svg { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+fieldset { margin: 0; padding: 0; border: 0; }
+legend { padding: 0; }
+
+/* ------------------------------------------------------------ typography - */
+
+.voice { font-family: var(--font-voice); }
+.data  { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+
+.display {
+  font-family: var(--font-ui);
+  font-weight: 550;
+  letter-spacing: var(--track-tight);
+  line-height: 1.02;
+}
+
+.label {
+  font-family: var(--font-ui);
+  font-size: var(--step-000);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.lede {
+  font-family: var(--font-voice);
+  font-size: var(--step-2);
+  line-height: 1.42;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.prose { max-width: 62ch; color: var(--ink-2); text-wrap: pretty; }
+.prose + .prose { margin-top: var(--sp-4); }
+
+.mark { color: var(--accent); }
+
+/* ---------------------------------------------------------------- a11y ---- */
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  z-index: 999;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+  border-radius: var(--radius);
+  transform: translateY(-160%);
+  transition: transform var(--dur-1) var(--ease);
+}
+.skip-link:focus-visible { transform: translateY(0); }
+
+/* One focus treatment everywhere: a solid accent ring with a dark spacer so
+   it stays visible on light fills, dark fills and photographs alike. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--canvas-deep);
+  border-radius: var(--radius);
+}
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-contrast: more) {
+  :root {
+    --ink-2: #d6dee7;
+    --ink-3: #b6c2cd;
+    --line: #46545f;
+    --line-strong: #6d7d8b;
+  }
+}
+
+/* --------------------------------------------------------------- layout -- */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 100svh;
+}
+
+.pane {
+  min-width: 0;
+  padding: var(--sp-6) clamp(var(--sp-5), 4vw, var(--sp-8));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.stack       { display: flex; flex-direction: column; gap: var(--sp-4); }
+.stack-tight { display: flex; flex-direction: column; gap: var(--sp-2); }
+.stack-loose { display: flex; flex-direction: column; gap: var(--sp-6); }
+.row {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+}
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.grow { flex: 1 1 auto; min-width: 0; }
+
+.rule { height: 1px; background: var(--line); border: 0; margin: 0; }
+
+/* -------------------------------------------------------------- surfaces - */
+
+.card {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--canvas-deep) 220%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-1);
+}
+.card--flush { padding: 0; overflow: hidden; }
+.card--accent { border-color: var(--accent-line); }
+
+.card__head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.panel {
+  border-left: 2px solid var(--accent-line);
+  padding-left: var(--sp-4);
+}
+
+/* --------------------------------------------------------------- buttons - */
+
+.btn {
+  --btn-bg: var(--surface-2);
+  --btn-fg: var(--ink);
+  --btn-line: var(--line-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 0.7em 1.15em;
+  min-height: 2.75rem;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: 1px solid var(--btn-line);
+  border-radius: var(--radius);
+  font-size: var(--step-0);
+  font-weight: 560;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease),
+              border-color var(--dur-1) var(--ease),
+              color var(--dur-1) var(--ease),
+              transform var(--dur-1) var(--ease);
+}
+.btn:hover { --btn-bg: var(--surface-3); --btn-line: var(--ink-3); }
+.btn:active { transform: translateY(1px); }
+.btn[disabled], .btn[aria-disabled="true"] {
+  opacity: 0.45; cursor: not-allowed; transform: none;
+}
+
+.btn--primary {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--accent-ink);
+  --btn-line: var(--accent);
+  font-weight: 650;
+}
+.btn--primary:hover {
+  --btn-bg: color-mix(in oklab, var(--accent) 84%, white);
+  --btn-line: var(--btn-bg);
+}
+
+.btn--quiet {
+  --btn-bg: transparent;
+  --btn-line: transparent;
+  --btn-fg: var(--ink-2);
+  padding-inline: 0.5em;
+}
+.btn--quiet:hover { --btn-fg: var(--ink); --btn-bg: var(--surface-2); }
+
+.btn--danger {
+  --btn-bg: transparent;
+  --btn-fg: var(--danger);
+  --btn-line: color-mix(in oklab, var(--danger) 55%, transparent);
+}
+.btn--danger:hover { --btn-bg: color-mix(in oklab, var(--danger) 14%, transparent); --btn-fg: #ffb0a9; }
+
+.btn--block { width: 100%; }
+.btn--lg { min-height: 3.5rem; font-size: var(--step-1); padding: 0.85em 1.5em; }
+
+/* --------------------------------------------------------------- fields -- */
+
+.field { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.field > label {
+  font-size: var(--step-00);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75em 0.9em;
+  min-height: 2.9rem;
+  background: var(--canvas-deep);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
+}
+.input::placeholder { color: var(--ink-3); }
+.input:hover { border-color: var(--ink-3); }
+.input:focus { border-color: var(--accent); }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+
+.hint { font-size: var(--step-00); color: var(--ink-3); }
+.error-text { font-size: var(--step-00); color: #ffb0a9; }
+
+/* Switch — used for the caregiver-visibility promises in onboarding. */
+.switch {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr;
+  align-items: start;
+  gap: var(--sp-4);
+  padding: var(--sp-4) 0;
+  cursor: pointer;
+}
+.switch input {
+  appearance: none;
+  margin: 0;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+.switch input::after {
+  content: "";
+  position: absolute;
+  inset-block: 2px;
+  left: 2px;
+  width: 1.125rem;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition: transform var(--dur-2) var(--ease), background-color var(--dur-2) var(--ease);
+}
+.switch input:checked { background: var(--accent-soft); border-color: var(--accent); }
+.switch input:checked::after { transform: translateX(1.2rem); background: var(--accent); }
+.switch__text { font-size: var(--step-0); color: var(--ink); }
+.switch__text .hint { display: block; margin-top: var(--sp-1); }
+
+/* --------------------------------------------------------------- badges -- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0.25em 0.6em;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-ui);
+  font-size: var(--step-000);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.badge::before {
+  content: "";
+  width: 0.4rem; height: 0.4rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.badge--live   { color: var(--accent-0); border-color: color-mix(in oklab, var(--accent-0) 45%, transparent); }
+.badge--fallback { color: var(--accent-2); border-color: color-mix(in oklab, var(--accent-2) 45%, transparent); }
+.badge--offline  { color: #ffb0a9; border-color: color-mix(in oklab, var(--danger) 45%, transparent); }
+
+/* System notice strip — AI offline, request failed, degraded mode. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--step-00);
+  color: var(--ink-2);
+}
+.notice[hidden] { display: none; }
+.notice--warn  { border-left-color: var(--accent-2); }
+.notice--error { border-left-color: var(--danger); }
+.notice--ok    { border-left-color: var(--accent-0); }
+.notice strong { color: var(--ink); font-weight: 650; }
+
+/* --------------------------------------------------------- ladder rail --- */
+/* The spine. Present on every authenticated surface, always, at every tier. */
+
+.rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-6) var(--sp-5);
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--canvas-deep), var(--canvas));
+}
+
+.rail__brand {
+  font-family: var(--font-ui);
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rail__brand span { color: var(--accent); transition: color var(--dur-3) var(--ease); }
+
+.ladder { display: flex; flex-direction: column; }
+
+.ladder__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0.42rem 0;
+  color: var(--ink-3);
+  font-size: var(--step-00);
+  transition: color var(--dur-2) var(--ease);
+}
+/* the connecting spine */
+.ladder__step::before {
+  content: "";
+  position: absolute;
+  left: 0.56rem;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.ladder__step:first-child::before { top: 50%; }
+.ladder__step:last-child::before  { bottom: 50%; }
+
+.ladder__dot {
+  position: relative;
+  z-index: 1;
+  width: 1.25rem; height: 1.25rem;
+  display: grid; place-items: center;
+}
+.ladder__dot::after {
+  content: "";
+  width: 0.5rem; height: 0.5rem;
+  border-radius: 50%;
+  background: var(--canvas);
+  border: 1px solid var(--line-strong);
+  transition: all var(--dur-2) var(--ease);
+}
+
+.ladder__name { font-weight: 550; }
+.ladder__num {
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  color: var(--ink-3);
+  margin-right: var(--sp-2);
+}
+
+/* passed rungs — everything at or below the current tier */
+.ladder__step[data-state="passed"] { color: var(--ink-2); }
+.ladder__step[data-state="passed"] .ladder__dot::after {
+  background: var(--accent-line);
+  border-color: var(--accent-line);
+}
+
+/* the live rung */
+.ladder__step[aria-current="step"] {
+  color: var(--ink);
+  font-weight: 650;
+}
+.ladder__step[aria-current="step"] .ladder__dot::after {
+  width: 0.75rem; height: 0.75rem;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft), 0 0 18px var(--glow);
+}
+
+/* THE THRESHOLD — the line between "we ask you" and "we act".
+   The product is named after it, so it is drawn, not implied. */
+.ladder__threshold {
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  gap: var(--sp-3);
+  align-items: center;
+  margin: var(--sp-2) 0;
+}
+.ladder__threshold span {
+  font-size: var(--step-000);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.ladder__threshold span::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 7px);
+}
+.ladder__threshold::before {
+  content: "";
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.rail__reason {
+  font-family: var(--font-voice);
+  font-size: var(--step-0);
+  line-height: 1.45;
+  color: var(--ink-2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-4);
+  text-wrap: pretty;
+}
+
+.rail__foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav a {
+  padding: var(--sp-2) var(--sp-2);
+  margin-inline: calc(var(--sp-2) * -1);
+  color: var(--ink-3);
+  text-decoration: none;
+  font-size: var(--step-00);
+  border-radius: var(--radius);
+  transition: color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease);
+}
+.nav a:hover { color: var(--ink); background: var(--surface); }
+.nav a[aria-current="page"] { color: var(--ink); }
+.nav a[aria-current="page"]::before { content: "— "; color: var(--accent); }
+
+/* ------------------------------------------------------------- motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

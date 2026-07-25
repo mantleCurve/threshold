@@ -1,0 +1,680 @@
+/* ============================================================================
+   THRESHOLD — pages.css
+   Components specific to a surface. Everything here inherits the tier tokens
+   from tiers.css; nothing here hardcodes a tier colour.
+   ========================================================================= */
+
+/* ==========================================================================
+   AUTH — login.html / register.html
+   Two columns: a statement of what the product is on the left, the form on
+   the right. Demo credentials are PRINTED, not hidden behind a tooltip — the
+   contract says an evaluator must never be locked out, so the credentials are
+   the second thing on the page, styled as a first-class element.
+   ========================================================================== */
+
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  min-height: 100svh;
+}
+
+.auth__aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-7);
+  padding: clamp(2rem, 5vw, 4.5rem);
+  border-right: 1px solid var(--line);
+  background: linear-gradient(160deg, var(--canvas-deep), var(--canvas) 60%);
+}
+
+.auth__main {
+  display: grid;
+  place-items: center;
+  padding: clamp(2rem, 5vw, 4.5rem) clamp(1.25rem, 5vw, 4rem);
+}
+
+.auth__form { width: min(26rem, 100%); }
+
+/* The wordmark. Letterspaced caps in the UI face — institutional and steady,
+   which is the register we want: this is infrastructure, not an app. */
+.wordmark {
+  font-size: var(--step-2);
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.wordmark span { color: var(--accent); }
+
+/* A miniature, non-interactive ladder shown on the auth pages so the spine of
+   the product is visible before you even have an account. */
+.auth__ladder { display: flex; flex-direction: column; gap: var(--sp-2); }
+.auth__ladder li {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  gap: var(--sp-3);
+  align-items: baseline;
+  font-size: var(--step-00);
+  color: var(--ink-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.auth__ladder b {
+  font-family: var(--font-data);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.auth__ladder li:nth-child(1) b { color: var(--accent-0); }
+.auth__ladder li:nth-child(2) b { color: var(--accent-1); }
+.auth__ladder li:nth-child(3) b { color: var(--accent-2); }
+.auth__ladder li:nth-child(4) b { color: var(--accent-3); }
+.auth__ladder li:nth-child(5) b { color: var(--accent-4); }
+.auth__ladder li:nth-child(6) b { color: var(--accent-5); }
+
+/* ---- demo credentials ---------------------------------------------------
+   Monospace, boxed, deliberately prominent. The one-tap buttons below it fill
+   the form via JS; the credentials are ALSO pre-filled in the inputs, so an
+   evaluator who ignores this block still gets in by pressing Enter.
+   ------------------------------------------------------------------------ */
+.creds {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+  background: var(--canvas-deep);
+}
+.creds dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  margin: var(--sp-3) 0;
+  font-family: var(--font-data);
+  font-size: var(--step-00);
+}
+.creds dt { color: var(--ink-3); }
+.creds dd { margin: 0; color: var(--ink); }
+.creds dd b { color: var(--accent); font-weight: 600; }
+.creds .row { gap: var(--sp-2); }
+
+/* ==========================================================================
+   USER SURFACE — index.html
+   ========================================================================== */
+
+/* ---- voice push-to-talk -------------------------------------------------
+   The PRIMARY interaction of the entire product. Round, large, centred, and
+   the only accent-filled element at Tier 0 — the eye has exactly one place to
+   land. It is a <button>, not a div, so space/enter work and it is announced
+   as a button; aria-pressed carries the recording state.
+   ------------------------------------------------------------------------ */
+
+.voice-control {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-6) 0;
+}
+
+.ptt {
+  position: relative;
+  width: clamp(9rem, 22vw, 13rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--accent-line);
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%),
+    var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+  gap: var(--sp-1);
+  transition: transform var(--dur-2) var(--ease),
+              border-color var(--dur-2) var(--ease),
+              box-shadow var(--dur-2) var(--ease);
+}
+.ptt:hover { border-color: var(--accent); box-shadow: 0 0 40px -8px var(--glow); }
+.ptt:active { transform: scale(0.97); }
+
+.ptt__label {
+  font-size: var(--step-1);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.ptt__hint { font-size: var(--step-000); color: var(--ink-3); letter-spacing: var(--track-label); text-transform: uppercase; }
+
+/* Recording. The ring is an ::after so it can pulse without moving the button
+   itself — a moving target is unusable for anyone with a motor impairment. */
+.ptt[aria-pressed="true"] {
+  border-color: var(--accent);
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--accent) 40%, transparent), transparent 70%),
+    var(--surface-2);
+}
+.ptt[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  animation: ptt-ring 1600ms var(--ease) infinite;
+}
+@keyframes ptt-ring {
+  0%   { transform: scale(1);    opacity: 0.9; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
+
+/* A live amplitude bar the JS agent can drive by setting --level: 0..1. Purely
+   confirmatory — the aria-pressed state and the visible label already say
+   "recording", so a user who cannot see this loses nothing. */
+.ptt-meter {
+  width: min(22rem, 100%);
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+  overflow: hidden;
+}
+.ptt-meter::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: calc(var(--level, 0) * 100%);
+  background: var(--accent);
+  transition: width 90ms linear;
+}
+
+/* ---- transcript ---------------------------------------------------------
+   Voice, not chat. No bubbles, no avatars — bubbles read as casual messaging
+   and this conversation is not casual. Speaker is a small caps label; the
+   words themselves are set in the serif, because a serif reads as a person
+   speaking and the sans reads as the machine reporting.
+   ------------------------------------------------------------------------ */
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-height: 42svh;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding-right: var(--sp-3);
+}
+@media (prefers-reduced-motion: reduce) { .transcript { scroll-behavior: auto; } }
+
+.turn { display: grid; gap: var(--sp-2); }
+.turn__who {
+  font-size: var(--step-000);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: flex; align-items: center; gap: var(--sp-2);
+}
+.turn__text {
+  font-family: var(--font-voice);
+  font-size: calc(var(--step-1) * var(--scale, 1));
+  line-height: 1.45;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+/* The user's own words are indented and dimmer: the system's replies are what
+   matter under duress, so they hold the left margin and the full contrast. */
+.turn[data-who="user"] { padding-left: var(--sp-5); border-left: 1px solid var(--line); }
+.turn[data-who="user"] .turn__text { color: var(--ink-2); }
+.turn[data-who="system"] .turn__who { color: var(--accent); }
+
+/* Streaming caret for SSE token-by-token rendering. */
+.turn[data-streaming="true"] .turn__text::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em; height: 1em;
+  margin-left: 0.1em;
+  background: var(--accent);
+  vertical-align: -0.12em;
+  animation: caret 1s steps(2) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
+/* ---- small data displays ------------------------------------------------ */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.stat {
+  background: var(--surface);
+  padding: var(--sp-4);
+  display: grid;
+  gap: var(--sp-1);
+}
+.stat__value {
+  font-family: var(--font-data);
+  font-size: var(--step-3);
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.stat__value[data-tone="accent"] { color: var(--accent); }
+
+/* Demo tier control. Chrome — vanishes at Tier 3+ with everything else, which
+   is itself part of the demo: the judge watches the controls disappear. */
+.tier-control {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.tier-control button {
+  flex: 1 1 3rem;
+  min-height: 2.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font-family: var(--font-data);
+  cursor: pointer;
+  transition: all var(--dur-1) var(--ease);
+}
+.tier-control button:hover { color: var(--ink); border-color: var(--ink-3); }
+.tier-control button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   CAREGIVER — caregiver.html
+   The caregiver is exhausted and frightened. The page is therefore ordered by
+   what they need in the first ten seconds, not by what is easiest to build:
+     1. what is happening   2. what we already did   3. next 60 seconds
+     4. what NOT to say     5. what you can and cannot see
+   ========================================================================== */
+
+.alert-head {
+  border: 1px solid var(--accent-line);
+  border-left-width: 3px;
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+  background: linear-gradient(100deg, var(--accent-soft), transparent 55%), var(--surface);
+}
+.alert-head__tier {
+  font-size: var(--step-5);
+  font-weight: 650;
+  letter-spacing: var(--track-tight);
+  color: var(--accent);
+  line-height: 1.05;
+}
+
+/* Numbered timeline for "what the system already did". Numbers are generated
+   by CSS counters, not typed into the HTML, so the JS agent can inject rows
+   without renumbering anything. */
+.timeline { counter-reset: step; display: grid; gap: var(--sp-4); }
+.timeline li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 1.75rem 1fr;
+  gap: var(--sp-4);
+  align-items: start;
+}
+.timeline li::before {
+  content: counter(step);
+  font-family: var(--font-data);
+  font-size: var(--step-00);
+  color: var(--accent);
+  width: 1.75rem; height: 1.75rem;
+  display: grid; place-items: center;
+  border: 1px solid var(--accent-line);
+  border-radius: 50%;
+}
+.timeline time { display: block; font-family: var(--font-data); font-size: var(--step-000); color: var(--ink-3); }
+
+/* "What NOT to say" — the highest-value content on the page and the easiest
+   to skim past, so it gets its own visual language: struck-through phrasing
+   in the serif, with the replacement directly beneath it. */
+.say-not { display: grid; gap: var(--sp-4); }
+.say-not li {
+  display: grid;
+  gap: var(--sp-2);
+  padding-left: var(--sp-4);
+  border-left: 2px solid color-mix(in oklab, var(--danger) 50%, transparent);
+}
+.say-not .dont {
+  font-family: var(--font-voice);
+  font-size: var(--step-1);
+  color: #ffb0a9;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in oklab, var(--danger) 70%, transparent);
+}
+.say-not .do {
+  font-family: var(--font-voice);
+  font-size: var(--step-1);
+  color: var(--ink);
+}
+.say-not .why { font-size: var(--step-00); color: var(--ink-3); }
+
+/* ---- the privacy contract ----------------------------------------------
+   Two columns, plainly labelled. This is a trust artefact: a caregiver who
+   knows exactly what they can see is less likely to interrogate the user, and
+   a user who knows the caregiver's limits is more likely to keep using the
+   product honestly. It is never collapsed behind a disclosure.
+   ------------------------------------------------------------------------ */
+.visibility {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.visibility > div { background: var(--surface); padding: var(--sp-5); display: grid; gap: var(--sp-3); align-content: start; }
+.visibility li { display: grid; grid-template-columns: 1rem 1fr; gap: var(--sp-3); font-size: var(--step-00); color: var(--ink-2); }
+.visibility li::before { font-family: var(--font-data); line-height: 1.6; }
+.visibility .can li::before   { content: "+"; color: var(--accent-0); }
+/* An en dash, not a cross: a cross reads as an error. This is not an error,
+   it is a boundary the user chose and we are honouring. */
+.visibility .cannot li::before { content: "\2013"; color: var(--ink-3); }
+
+/* ==========================================================================
+   BYSTANDER — bystander.html
+   No account. Possibly no English. Definitely no patience. Everything is
+   oversized by default regardless of tier, because a bystander page is only
+   ever opened during an emergency — there is no calm state to design for.
+   ========================================================================== */
+
+.bystander { --scale: 1.15; max-width: 44rem; margin-inline: auto; }
+
+/* Good Samaritan reassurance comes FIRST, above the medical instructions.
+   This is a deliberate clinical decision, not a layout preference: the
+   dominant reason bystanders don't call 911 at an overdose is fear of arrest.
+   Removing that fear is the intervention. Static reviewed text only — the
+   contract forbids generating legal language. */
+.samaritan {
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+  background: linear-gradient(160deg, var(--accent-soft), transparent 60%), var(--surface);
+}
+.samaritan__headline {
+  font-size: var(--step-4);
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: var(--track-tight);
+  color: var(--ink);
+  text-wrap: balance;
+}
+.samaritan__statute {
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  color: var(--ink-3);
+  border-top: 1px solid var(--line);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+/* 911 — a link, not a button, so it works with no JS at all. If every script
+   on this page fails to load, the emergency call still functions. */
+.call-911 {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-5);
+  background: var(--danger);
+  color: #1a0402;
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: var(--step-5);
+  letter-spacing: var(--track-tight);
+  min-height: 5.5rem;
+  box-shadow: 0 20px 60px -25px var(--danger);
+}
+.call-911 small { font-size: var(--step-00); font-weight: 600; opacity: 0.8; letter-spacing: 0; }
+.call-911:hover { filter: brightness(1.06); }
+.call-911:focus-visible { outline: 4px solid #fff; outline-offset: -8px; }
+
+/* ---- numbered rescue steps ---------------------------------------------- */
+.steps { counter-reset: rescue; display: grid; gap: var(--sp-5); }
+.steps > li {
+  counter-increment: rescue;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-5);
+  align-items: start;
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--line);
+}
+.steps > li::before {
+  content: counter(rescue);
+  font-family: var(--font-data);
+  font-size: var(--step-4);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--accent);
+  min-width: 2ch;
+}
+.step__title { font-size: var(--step-2); font-weight: 600; line-height: 1.2; margin-bottom: var(--sp-2); }
+.step__body { font-family: var(--font-voice); font-size: var(--step-1); color: var(--ink-2); text-wrap: pretty; }
+
+/* ---- rescue-breathing metronome ----------------------------------------
+   One breath every 5 seconds, the current guideline for rescue breathing.
+   THREE redundant channels, because a bystander may be looking away, may be
+   in a loud room, or may have reduced motion enabled:
+     visual   the ring scales
+     text     the word BREATHE / WAIT changes (also the aria-live announcement)
+     count    a visible seconds counter the JS drives
+   The animation is decorative reinforcement only; if it is disabled, the text
+   channel still carries the full instruction.
+   ------------------------------------------------------------------------ */
+.metronome {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--canvas-deep);
+}
+.metronome__ring {
+  width: clamp(8rem, 30vw, 12rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid var(--accent-line);
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, var(--accent-soft), transparent 70%);
+}
+.metronome[data-running="true"] .metronome__ring { animation: breath-cycle 5s var(--ease) infinite; }
+@keyframes breath-cycle {
+  0%   { transform: scale(0.86); border-color: var(--accent-line); }
+  20%  { transform: scale(1);    border-color: var(--accent); }
+  40%  { transform: scale(0.86); border-color: var(--accent-line); }
+  100% { transform: scale(0.86); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .metronome[data-running="true"] .metronome__ring { animation: none; }
+}
+.metronome__word {
+  font-size: var(--step-4);
+  font-weight: 650;
+  letter-spacing: var(--track-tight);
+  color: var(--ink);
+}
+.metronome__count { font-family: var(--font-data); font-size: var(--step-1); color: var(--ink-3); }
+
+/* Recovery position diagram — inline SVG, currentColor, no image request. */
+.diagram {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+  background: var(--canvas-deep);
+  color: var(--accent);
+}
+
+/* ==========================================================================
+   ONBOARDING — onboarding.html
+   Framed as a promise being made, not a settings form. Each toggle states the
+   consequence in plain language BEFORE the control, and the consequence text
+   is the label — so a screen-reader user hears the promise, not "switch 3".
+   ========================================================================== */
+
+.promise { max-width: 46rem; margin-inline: auto; }
+
+.promise__step {
+  border-top: 1px solid var(--line);
+  padding: var(--sp-7) 0;
+}
+.promise__step:first-of-type { border-top: 0; }
+.promise__num {
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  letter-spacing: var(--track-label);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+/* The tuning table. Locked rows (tiers 4 and 5) are shown, not hidden: the
+   user must SEE that two rungs are not theirs to switch off. Hiding them
+   would be the dishonest choice and this page is the trust transaction. */
+.ladder-table { width: 100%; border-collapse: collapse; font-size: var(--step-00); }
+.ladder-table caption {
+  text-align: left;
+  padding-bottom: var(--sp-4);
+  color: var(--ink-2);
+  font-size: var(--step-00);
+}
+.ladder-table th, .ladder-table td {
+  text-align: left;
+  padding: var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.ladder-table thead th {
+  font-size: var(--step-000);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom-color: var(--line-strong);
+}
+.ladder-table tbody th { font-weight: 600; color: var(--ink); }
+.ladder-table tbody th small { display: block; font-weight: 400; color: var(--ink-3); font-size: var(--step-000); margin-top: 2px; }
+.ladder-table .tier-chip {
+  font-family: var(--font-data);
+  padding: 0.1em 0.45em;
+  border-radius: var(--radius);
+  border: 1px solid currentColor;
+  font-size: var(--step-000);
+}
+.ladder-table tr[data-locked] { background: color-mix(in oklab, var(--danger) 5%, transparent); }
+.ladder-table tr[data-locked] td:last-child { color: var(--ink-2); }
+.lock {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--step-000);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: #ffb0a9;
+}
+
+@media (max-width: 40rem) {
+  /* Tables collapse to stacked definition rows rather than scrolling
+     horizontally — a horizontal scroll on a promise page hides the promise. */
+  .ladder-table thead { display: none; }
+  .ladder-table tr { display: grid; gap: var(--sp-2); padding: var(--sp-4) 0; border-bottom: 1px solid var(--line); }
+  .ladder-table th, .ladder-table td { border: 0; padding: 0; }
+  .ladder-table td::before { content: attr(data-th) ": "; color: var(--ink-3); }
+}
+
+/* ==========================================================================
+   LADDER LOG — ladder.html
+   Append-only, newest first, nothing withheld. PRD §11: every event visible to
+   the user, no hidden log. The design says that out loud — there is no filter
+   control that could imply some rows are being kept back.
+   ========================================================================== */
+
+.log { display: grid; }
+.log__row {
+  display: grid;
+  grid-template-columns: 6.5rem 5.5rem 1fr;
+  gap: var(--sp-4);
+  padding: var(--sp-4) 0;
+  border-bottom: 1px solid var(--line);
+  align-items: start;
+}
+.log__time { font-family: var(--font-data); font-size: var(--step-00); color: var(--ink-3); }
+.log__tier {
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  padding: 0.2em 0.5em;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  justify-self: start;
+}
+/* Per-row tier colour. The log spans many tiers at once, so rows cannot use
+   the live --accent — they each carry their own historical colour. */
+.log__row[data-tier="0"] .log__tier { color: var(--accent-0); }
+.log__row[data-tier="1"] .log__tier { color: var(--accent-1); }
+.log__row[data-tier="2"] .log__tier { color: var(--accent-2); }
+.log__row[data-tier="3"] .log__tier { color: var(--accent-3); }
+.log__row[data-tier="4"] .log__tier { color: var(--accent-4); }
+.log__row[data-tier="5"] .log__tier { color: var(--accent-5); }
+
+.log__reason { color: var(--ink); text-wrap: pretty; }
+.log__actions {
+  display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.log__actions li {
+  font-family: var(--font-data);
+  font-size: var(--step-000);
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.15em 0.45em;
+}
+.log__source { font-family: var(--font-data); font-size: var(--step-000); color: var(--ink-3); }
+
+.empty {
+  padding: var(--sp-7);
+  text-align: center;
+  color: var(--ink-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   The rail becomes a horizontal strip on narrow viewports. It NEVER becomes a
+   hamburger menu: the ladder is the spine of the product and must be visible
+   without an interaction, especially at 3am on a phone.
+   ========================================================================== */
+
+@media (max-width: 60rem) {
+  .shell { grid-template-columns: 1fr; }
+  .rail {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: var(--sp-4) var(--sp-5);
+  }
+  .ladder { flex-direction: row; justify-content: space-between; gap: var(--sp-2); }
+  .ladder__step { grid-template-columns: 1fr; justify-items: center; text-align: center; gap: var(--sp-1); }
+  .ladder__step::before { left: 0; right: 0; top: 0.62rem; bottom: auto; width: auto; height: 1px; }
+  .ladder__step:first-child::before { left: 50%; }
+  .ladder__step:last-child::before { right: 50%; }
+  .ladder__name { display: none; }
+  .ladder__num { margin: 0; }
+  .ladder__threshold { display: none; }
+  .rail__foot { margin-top: var(--sp-4); }
+  .nav { flex-direction: row; flex-wrap: wrap; gap: var(--sp-3); }
+  .auth { grid-template-columns: 1fr; }
+  .auth__aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  .log__row { grid-template-columns: 1fr; gap: var(--sp-2); }
+}
