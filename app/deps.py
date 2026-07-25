@@ -201,7 +201,8 @@ def _record(user_id: str, result: TriageResult, source: str) -> None:
             tier=result.tier,
             trigger_source=source,
             reason=result.reason,
-            actions_taken=[a.kind for a in result.actions],
+            actions_planned=[a.kind for a in result.actions],
+            actions_taken=[],
         )
     )
 

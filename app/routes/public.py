@@ -23,9 +23,10 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from app import store
-from app.deps import DATA_DIR, _now, _tiers
+from app.deps import DATA_DIR, _listeners, _now, _tiers
 
 router = APIRouter()
 
@@ -68,7 +69,7 @@ async def post_contact(body: dict = Body(...)) -> dict:
 
 
 @router.post("/api/account/delete")
-async def post_account_delete(request: Request) -> dict:
+async def post_account_delete(request: Request) -> JSONResponse:
     """Delete the signed-in account and everything attached to it.
 
     Immediate and total: no soft-delete, no thirty-day tombstone, no recovery

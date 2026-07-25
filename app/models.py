@@ -49,6 +49,12 @@ class Action(BaseModel):
         "show_911_script",
         "show_good_samaritan",
         "naloxone_prompt",
+        # Surfaced when the trigger was a suicidal statement rather than a
+        # physical emergency. 988 is offered ALONGSIDE 911, not instead of it:
+        # a police response to a mental-health crisis carries its own
+        # well-documented risk of harm, so the person is given the crisis line
+        # as a real first option rather than only an emergency dispatch.
+        "show_crisis_line",
         "bystander_hail",
         "arm_bystander_mode",
         "rescue_breathing",
@@ -128,6 +134,7 @@ class Event(BaseModel):
     tier: Tier
     trigger_source: str
     reason: str
+    actions_planned: list[str] = Field(default_factory=list)
     actions_taken: list[str] = Field(default_factory=list)
     user_visible: Literal[True] = True
 

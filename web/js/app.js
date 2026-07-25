@@ -428,19 +428,30 @@ async function requestWakeLock() {
  * would push text into a hidden emergency surface rather than the transcript
  * the user is actually reading.
  *
- * THE VOICE IS SYNTHETIC AND IS ONLY EVER THE APP'S OWN.
- * The member picks it in onboarding; it is read from localStorage below. What
- * this function speaks is always Threshold speaking as Threshold.
+ * THE VOICE IS ALWAYS SYNTHETIC, AND IT IS ALWAYS THE MEMBER'S CHOICE.
+ * Three possibilities, and the member picks between them in onboarding:
+ *   - the browser's own speech (THE DEFAULT, and what this file falls back to);
+ *   - a stock cloud narrator, which is nobody;
+ *   - a supporter voice that a caregiver recorded of themselves, consented to
+ *     explicitly, and separately chose to share — and that this member
+ *     separately chose to turn on. Default off at every one of those steps.
+ * Routing lives in voice.js; this function delegates to it.
+ *
+ * EVERY CLONED UTTERANCE IS VISIBLY LABELLED as an AI recreation for as long as
+ * it plays. That is applied inside voice.js at the single point where cloned
+ * audio reaches the speaker, so no call site here can forget it, and a cloned
+ * voice is never permitted to claim the real person is present (PRD P5).
  *
  * MEMORY VAULT CLIPS NEVER COME THROUGH HERE. Those are real recordings of real
- * people, played as recorded, and no code path routes one into
- * speechSynthesis. No voice offered anywhere in this product imitates a
- * specific caregiver. PRD §7.2 declined voice cloning deliberately: consent
- * obtained in calm is spent in crisis, and a "this is synthesised" label does no
- * cognitive work at all on someone intoxicated or panicking. The only design
- * that holds at tier 4 is the one where a voice you recognise as your sister's
- * IS your sister's. If you are ever tempted to add cloning here, that is the
- * paragraph to read again.
+ * people, played as recorded, and no code path routes one into speech synthesis
+ * of any kind. The supporter-voice feature does not touch them.
+ *
+ * PRD §7.2 declined caregiver voice cloning, and the reasoning has not been
+ * refuted, only mitigated — consent obtained in calm is spent in crisis, and a
+ * "this is synthesised" label does limited cognitive work on someone
+ * intoxicated or panicking. The product owner chose to enable it behind the
+ * consent chain in app/voice.py. Read that module's docstring before changing
+ * anything here.
  */
 
 /** localStorage key for the app-voice preference. Must match onboarding.js. */
@@ -464,7 +475,30 @@ function preferredVoice() {
   return voices.find((v) => v.voiceURI === uri) || null;
 }
 
+/**
+ * Speak through whichever voice the member chose.
+ *
+ * Delegates to voice.js, which handles the cloud path, the AI-recreation label,
+ * and the fallback. The dynamic import and its `.catch` are load-bearing rather
+ * than tidy: a voice module that fails to load, on any browser, must not be
+ * able to mute the emergency path. If it does not resolve, this page still
+ * speaks — in the browser's own voice, immediately, from the function below.
+ */
 function speak(text, { loud = false } = {}) {
+  if (!text) return;
+  import('/static/js/voice.js')
+    .then((voice) => voice.speakWithChosenVoice(text, { loud }))
+    .catch(() => speakInBrowser(text, { loud }));
+}
+
+/**
+ * The floor beneath every other speech path: the browser's own synthesis.
+ *
+ * Kept here, in the page's own bundle, rather than only in voice.js. It is the
+ * fallback, and a fallback that lives behind the thing it is a fallback for is
+ * not one. Always available, needs no network, costs nothing, imitates nobody.
+ */
+function speakInBrowser(text, { loud = false } = {}) {
   if (!('speechSynthesis' in window) || !text) return;
   const u = new SpeechSynthesisUtterance(text);
   const voice = preferredVoice();

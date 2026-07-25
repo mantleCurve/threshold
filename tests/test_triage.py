@@ -1062,3 +1062,86 @@ def test_ordinary_speech_does_not_trigger_an_emergency(utterance):
     """
     result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
     assert result.tier < _Tier.EMERGENCY, f"{utterance!r} falsely escalated"
+
+
+# ---------------------------------------------------------------------------
+# Suicidal statements
+# ---------------------------------------------------------------------------
+# THE MOST IMPORTANT TESTS IN THIS FILE.
+#
+# Before these signals existed, "I am ending my life right now" triaged to
+# Tier 0 and the product did nothing at all. Overdose and suicide are not
+# separate populations — overdose deaths are frequently intentional or
+# ambiguous in intent — so a recovery product that stays silent here is not
+# making a neutral omission.
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "I am ending my life right now",
+        "I want to kill myself",
+        "I am going to end it tonight",
+        "I don't want to be here anymore",
+        "I want to die",
+        "I feel suicidal",
+        "I don't want to live",
+        "I am going to hurt myself",
+        "I took all the pills",
+        "I took the whole bottle",
+    ],
+)
+def test_suicidal_statements_reach_emergency(utterance):
+    """Every one of these must reach Tier 4 and notify someone."""
+    result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
+    assert result.tier == _Tier.EMERGENCY, f"{utterance!r} did not escalate"
+    assert result.notify_caregiver is True, f"{utterance!r} told nobody"
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["I don't want to kill myself", "I'm not going to hurt myself"],
+)
+def test_negated_suicidal_statements_still_escalate(utterance):
+    """Negation is DISABLED on these rows, deliberately.
+
+    "I don't want to kill myself" is something people say while in serious
+    distress, and is frequently a disclosure rather than a denial. Everywhere
+    else in this table a false positive costs one rescind tap; here a false
+    negative costs a life, so the usual asymmetry is inverted on purpose.
+    """
+    result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
+    assert result.tier == _Tier.EMERGENCY
+
+
+def test_suicidal_statement_surfaces_the_crisis_line_first():
+    """988 leads, because a police response to a mental-health crisis carries
+    its own documented risk of harm. 911 stays one tap away underneath."""
+    result = _triage.evaluate(
+        _Tier.BASELINE, utterance="I am ending my life right now"
+    )
+    assert result.actions[0].kind == "show_crisis_line"
+    assert "988" in result.actions[0].detail
+    # The physical emergency actions still run: intent and overdose co-occur,
+    # and dropping either set would be a guess about which is happening.
+    assert any(a.kind == "naloxone_prompt" for a in result.actions)
+
+
+def test_physical_emergency_does_not_surface_the_crisis_line():
+    """Someone who cannot breathe needs naloxone and an ambulance, not a
+    counselling line at the top of the screen."""
+    result = _triage.evaluate(_Tier.BASELINE, utterance="I can't breathe")
+    assert result.tier == _Tier.EMERGENCY
+    assert all(a.kind != "show_crisis_line" for a in result.actions)
+
+
+def test_ordinary_speech_does_not_trigger_a_crisis_response():
+    """Precision guard. These are figures of speech, not disclosures."""
+    for utterance in (
+        "that meeting killed me",
+        "I'm dying to see her",
+        "this hill is going to end me",
+        "I took all the trash out",
+    ):
+        result = _triage.evaluate(_Tier.BASELINE, utterance=utterance)
+        assert result.tier < _Tier.EMERGENCY, f"{utterance!r} falsely escalated"

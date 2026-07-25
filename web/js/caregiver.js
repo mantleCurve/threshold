@@ -569,6 +569,21 @@ function notice(text) {
  * the rail but leave the brief alone — regenerating a summary for a tier the
  * caregiver may not even be permitted to see would burn latency and confuse the
  * live/fallback badge state at the moment it matters most.
+ *
+ * THIS CODE DOES NOT FILTER BY USER, AND MUST NOT START.
+ * Every event arriving on this stream has already been authorised for THIS
+ * session by the server: the listener is tagged with the signed-in account when
+ * it subscribes, and `app/deps.py::visible_to` decides per recipient whether an
+ * event may be written to it — own events always, a linked caregiver's watched
+ * user at tier 4/5 always (PRD §4.2) and at tier 3 only with the watched
+ * person's consent, tiers 0-2 never, anonymous listeners never.
+ *
+ * This page used to receive EVERY user's events and drop the ones whose
+ * `user_id` did not match, which meant other people's tier reasons and account
+ * ids were delivered to this browser and discarded here. A filter in the client
+ * is a rendering preference; anyone reading the network tab sees the data
+ * regardless. Re-adding a check here would not restore privacy — it would only
+ * hide the fact that the boundary had moved back to the wrong side of the wire.
  */
 function initStream() {
   let es;

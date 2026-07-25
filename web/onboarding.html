@@ -340,15 +340,20 @@
            has nothing whatsoever to do with the Memory Vault.
 
            Memory Vault clips are REAL RECORDINGS OF REAL PEOPLE and are NEVER
-           synthesised. No option in this list imitates a specific caregiver, and
-           none ever will: PRD §7.2 declined voice cloning deliberately. The
-           reasoning is worth stating in full because it is easy to mistake for
-           excessive caution — consent obtained in calm is spent in crisis. A
-           person who agreed months ago that their sister's voice could be
-           synthesised is not the person hearing it at tier 4, and a disclosure
-           label does no cognitive work at all on someone intoxicated or
-           panicking. The only safe design is that a voice you recognise as your
-           sister's IS your sister's.
+           synthesised. No option in THIS list imitates a specific person — these
+           are the browser's own installed voices, and every one of them is
+           nobody.
+
+           A supporter's voice CAN now be offered, but only through the separate
+           consented flow in the section below, and never from here. PRD §7.2
+           declined caregiver voice cloning and the reasoning still stands —
+           consent obtained in calm is spent in crisis; a person who agreed
+           months ago that their sister's voice could be synthesised is not the
+           person hearing it at tier 4, and a disclosure label does limited
+           cognitive work on someone intoxicated or panicking. The product owner
+           chose to enable it behind a consent chain in which the supporter
+           records themselves, agrees explicitly, shares separately, and either
+           side can revoke. See app/voice.py.
 
            Stored in localStorage, never on the server. Which voice you prefer is
            not health data and has no business in a database that also knows what
@@ -374,7 +379,7 @@
             This is a synthetic voice, and it is the app speaking as the app — it
             never claims to be a person. Memory Vault clips are different: those
             are real recordings of real people, played exactly as recorded.
-            Threshold does not and will not imitate anyone's voice.
+            Nothing in this list imitates anyone.
           </p>
         </div>
 
@@ -382,6 +387,56 @@
           <button type="button" class="btn btn--quiet" id="voice-preview">Preview</button>
           <span class="hint" id="voice-status">Saved on this device only.</span>
         </div>
+      </section>
+
+      <!-- ---------------------------------------------------------------- 5b -
+           WHO THE APP SOUNDS LIKE.
+
+           This is the MEMBER's end of the consent chain, and the last link in
+           it. A supporter has already had to: sign into their own account,
+           record themselves reading our script, tick an explicit statement, and
+           then separately decide to share the result. None of that obliges this
+           person to listen to it.
+
+           DEFAULT IS BROWSER SPEECH, and it is listed first and pre-selected.
+           The supporter option only appears at all if a linked caregiver both
+           recorded a voice and shared it; if they have not, this section shows
+           the device voice and a cloud narrator, which is the honest state
+           rather than an empty promise.
+
+           Either side can revoke at any time. Revoking removes the voice model
+           itself, not just the link — and if the caregiver relationship ends,
+           the voice goes with it.
+           -------------------------------------------------------------------->
+      <section class="promise__step stack" id="voice-picker" aria-labelledby="vpick-h">
+        <p class="promise__num">Step five, continued</p>
+        <h2 class="h2 display" id="vpick-h">Who Threshold sounds like</h2>
+        <p class="prose">
+          Your device's voice is the default and always will be unless you change
+          it here.
+        </p>
+
+        <ul class="stack" id="voice-options">
+          <!-- JS renders the options from GET /api/voice/available. The device
+               voice is always first and always present; cloud options appear
+               only when the service is configured; a supporter voice appears
+               only if someone recorded and shared one with you. -->
+        </ul>
+
+        <div class="row">
+          <button type="button" class="btn btn--quiet" id="voice-picker-preview">Preview</button>
+          <span class="hint" id="voice-picker-note" role="status" aria-live="polite"></span>
+        </div>
+
+        <!-- SAID AT THE POINT OF CHOOSING, not only while it plays. Deciding
+             whether to hear a copy of someone's voice is a decision you should
+             be able to make with the full picture in front of you. -->
+        <p class="hint">
+          If you pick a supporter's voice: it is an AI recreation, the screen
+          says so every time it speaks, and it will never tell you that person is
+          here with you or on their way. You can switch back to your device's
+          voice at any moment, and either of you can delete the voice outright.
+        </p>
       </section>
 
       <!-- ---------------------------------------------------------------- 6 -
@@ -414,5 +469,8 @@
 </div>
 
 <script src="/static/js/onboarding.js" type="module"></script>
+<!-- Wires the "who Threshold sounds like" picker above. Separate module so the
+     whole supporter-voice consent chain can be audited in one file. -->
+<script src="/static/js/voice.js" type="module"></script>
 </body>
 </html>

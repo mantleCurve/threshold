@@ -343,6 +343,7 @@ CREATE TABLE IF NOT EXISTS events (
     tier           INTEGER NOT NULL,
     trigger_source TEXT NOT NULL,   -- utterance / sensor / manual / rescind
     reason         TEXT NOT NULL,   -- auditable, written by triage, never by a model
+    actions_planned TEXT NOT NULL DEFAULT '[]',
     actions_taken  TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id, seq);
@@ -417,6 +418,7 @@ def init_db() -> None:
 # must be nullable or carry a default.
 _COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("vault_clips", "owner_user_id", "TEXT"),
+    ("events", "actions_planned", "TEXT NOT NULL DEFAULT '[]'"),
 )
 
 
@@ -1530,8 +1532,10 @@ def append_event(event: Event) -> Event:
         # and we still need a monotonic ordering column.
         seq = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM events").fetchone()["n"]
         conn.execute(
-            "INSERT INTO events (id, seq, user_id, at, tier, trigger_source, reason, actions_taken)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO events"
+            " (id, seq, user_id, at, tier, trigger_source, reason,"
+            "  actions_planned, actions_taken)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.id,
                 seq,
@@ -1540,6 +1544,7 @@ def append_event(event: Event) -> Event:
                 int(event.tier),
                 event.trigger_source,
                 event.reason,
+                json.dumps(event.actions_planned),
                 json.dumps(event.actions_taken),
             ),
         )
@@ -1593,6 +1598,7 @@ def list_events(user_id: str, limit: int = 200) -> list[Event]:
             tier=Tier(r["tier"]),
             trigger_source=r["trigger_source"],
             reason=r["reason"],
+            actions_planned=json.loads(r["actions_planned"]),
             actions_taken=json.loads(r["actions_taken"]),
         )
         for r in rows

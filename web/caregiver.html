@@ -246,9 +246,128 @@
       <div class="log" id="recent-log"></div>
     </section>
 
+    <!-- ------------------------------------------------------------------ 6 -
+         YOUR VOICE, IF YOU WANT TO OFFER IT.
+
+         THE CONSENT CHAIN, AND WHY THIS SECTION LOOKS THE WAY IT DOES.
+         Read app/voice.py's module docstring before changing anything here; it
+         is candid that PRD §7.2 declined caregiver voice cloning and that the
+         objections were never answered, only mitigated. Every element below is
+         one of those mitigations made physical:
+
+           * You are signed into YOUR OWN account. Nobody can record you, and
+             nobody can record anyone else here. The account being cloned is
+             always the one that is signed in — the server takes no account id
+             from this page, so there is no field for one.
+           * You read a script WE wrote, deliberately ordinary. Nothing in it is
+             distressing to say out loud, and nothing in it would sound like a
+             crisis line if it were ever replayed out of context.
+           * You tick a specific statement before a single byte uploads. The
+             exact wording is stored with your recording, so an audit shows what
+             you agreed to, not merely that you agreed.
+           * Recording it and SHARING it are two decisions. The share toggle
+             does not exist until the voice is built.
+           * They then have to choose to turn it on. Default off, both ends.
+           * Either of you can delete it, and that destroys the voice model —
+             not just this app's link to it.
+
+         WHAT THIS IS NOT: it has nothing to do with the Memory Vault. Vault
+         clips are real recordings of you saying a real thing, and they play
+         exactly as recorded. This feature never synthesises one.
+         ---------------------------------------------------------------------->
+    <section class="stack" id="voice-consent" aria-labelledby="voice-consent-h">
+      <h2 class="label" id="voice-consent-h">Your voice, if you want to offer it</h2>
+
+      <p class="prose">
+        You can record yourself reading three short passages, and Threshold will
+        build a synthetic copy of your voice from them. If you then choose to
+        share it, and your member chooses to turn it on, the app will read its
+        prompts to them in a voice that sounds like yours.
+      </p>
+
+      <!-- STATED BEFORE THE BUTTONS, not after. Someone deciding whether to do
+           this is entitled to the honest version first. -->
+      <div class="panel stack-tight">
+        <p><strong>What it is not:</strong> it is not you. It is an AI recreation,
+        it is labelled as one on screen every single time it speaks, and it will
+        never say you are there, listening, or on your way — because you would
+        not be, and telling someone in crisis otherwise would be a lie told in
+        your voice.</p>
+        <p class="hint">
+          Your Memory Vault recordings are untouched by this. Those are real
+          recordings of you, and they play exactly as you recorded them.
+        </p>
+      </div>
+
+      <!-- Honest offline state. CONTRACT.md: a missing API key is stated, never
+           disguised as a broken feature. -->
+      <p class="hint" id="voice-consent-status" role="status" aria-live="polite"></p>
+
+      <!-- The script. Rendered from GET /api/voice/script rather than hardcoded
+           here, so the words on screen and the words stored beside the consent
+           record come from one source and cannot drift apart. -->
+      <ol class="stack" id="voice-passages">
+        <!-- JS appends one <li> per passage, each with Record / Play back and a
+             per-passage state announced via aria-live. Three short passages
+             rather than one long one so a fluffed line costs one retake, not
+             the whole session. -->
+      </ol>
+
+      <div class="field" style="max-width: 28rem;">
+        <label for="voice-name">What to call this voice</label>
+        <input class="input" type="text" id="voice-name" placeholder="Sarah's voice"
+               aria-describedby="voice-name-hint">
+        <p class="hint" id="voice-name-hint">This is the label your member sees when choosing.</p>
+      </div>
+
+      <!-- THE CONSENT CHECKBOX. Its text is written by the server so that the
+           statement shown here is byte-for-byte the statement recorded against
+           your voice. Upload is disabled until it is ticked, and the server
+           refuses the request as well — the disabled button is the honest UI,
+           not the security control. -->
+      <label class="switch">
+        <input type="checkbox" id="voice-consent-check">
+        <span class="switch__text" id="voice-consent-text">
+          <!-- Filled from GET /api/voice/script. Deliberately empty in the
+               markup: a hardcoded fallback here could show wording that differs
+               from what is stored, which would make the record meaningless. -->
+        </span>
+      </label>
+
+      <div class="row">
+        <button type="button" class="btn btn--primary" id="voice-submit" disabled>
+          Build my voice
+        </button>
+        <span class="hint">Nothing is uploaded until you press this.</span>
+      </div>
+
+      <!-- THE SECOND DECISION. Hidden until the voice exists, because it is not
+           a decision that can meaningfully be made before then. Recording your
+           voice is not the same as giving it to someone. -->
+      <div class="row" id="voice-share-row" hidden>
+        <label class="switch">
+          <input type="checkbox" id="voice-share-toggle">
+          <span class="switch__text">
+            Share this voice with my member
+            <span class="hint">
+              They still have to choose to turn it on. Off by default, for them too.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Existing voices, each showing back the exact statement its owner
+           agreed to and the date. Recording consent and honouring it are
+           different things; this is the second one. -->
+      <ul class="stack" id="voice-existing"></ul>
+    </section>
+
   </main>
 </div>
 
 <script src="/static/js/caregiver.js" type="module"></script>
+<!-- Separate module, loaded on both surfaces. The whole consent gate lives in
+     one file so it can be audited in one read. -->
+<script src="/static/js/voice.js" type="module"></script>
 </body>
 </html>

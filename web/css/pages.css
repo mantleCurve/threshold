@@ -715,3 +715,101 @@
   .auth__aside { border-right: 0; border-bottom: 1px solid var(--line); }
   .log__row { grid-template-columns: 1fr; gap: var(--sp-2); }
 }
+
+/* ==========================================================================
+   SUPPORTER VOICE
+   The consented supporter-voice surface: the AI-recreation label, the live
+   recording indicator, and the passage list on the caregiver page.
+
+   Two of the three rules below are ETHICAL rather than visual, and are the
+   reason this block is commented at this length. See app/voice.py.
+   ========================================================================== */
+
+/* -- THE AI-RECREATION LABEL ------------------------------------------------
+   NON-NEGOTIABLE. Every utterance in a cloned supporter voice carries this for
+   as long as it plays. It is fixed to the bottom of the viewport rather than
+   placed in the page flow because it must be visible wherever the user has
+   scrolled to and whatever surface is on screen, INCLUDING the tier 4 takeover
+   — which is precisely the moment somebody is least able to reason about
+   whether a familiar voice is real (PRD P5).
+
+   Colour is --accent-2 (gold), not the danger red: this is a disclosure, not an
+   alarm, and dressing it as an emergency on a screen that may already be a real
+   emergency would drain the meaning from both.
+
+   z-index sits above the takeover for the same reason. If it can ever be
+   covered, it is not a label. */
+.ai-voice-label {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sp-4);
+  transform: translateX(-50%);
+  z-index: 9999;
+  max-width: min(40rem, calc(100vw - var(--sp-6)));
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--accent-2);
+  border-radius: var(--radius);
+  /* Opaque, never translucent. Text over whatever happens to be underneath is
+     a legibility gamble, and this is the one string that may not be missed. */
+  background: var(--canvas-deep);
+  color: var(--accent-2);
+  font-size: var(--step-00);
+  text-align: center;
+  /* The screen may be being read at arm's length by someone impaired. */
+  letter-spacing: 0.02em;
+}
+.ai-voice-label[hidden] { display: none; }
+
+/* -- THE LIVE RECORDING INDICATOR ------------------------------------------
+   A page-level bar while the microphone is open, set from
+   document.body.dataset.recording. Deliberately at the TOP and full width: on a
+   page whose entire subject is consenting to be recorded, nobody may ever be
+   unsure whether the microphone is currently on. The per-passage "Recording…"
+   text is announced via aria-live for the same reason, so the state reaches a
+   screen-reader user identically. */
+body[data-recording="true"]::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 9999;
+  background: var(--accent-4);
+  animation: recording-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* prefers-reduced-motion is handled globally in base.css, which flattens the
+   animation. The bar stays SOLID rather than disappearing — the indicator is
+   safety information, and only its movement was ever the accessibility problem. */
+
+/* -- The passage list ------------------------------------------------------- */
+.voice-passage {
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: var(--sp-3);
+}
+
+/* Set slightly larger and looser than body copy: this is text somebody is
+   reading ALOUD from a screen, which is a different task from reading it. */
+.voice-passage__text {
+  font-size: var(--step-0);
+  line-height: 1.7;
+  margin-bottom: var(--sp-3);
+}
+
+.voice-passage__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.voice-passage__state {
+  font-size: var(--step-00);
+  color: var(--ink-3);
+}

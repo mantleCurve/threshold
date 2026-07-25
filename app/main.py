@@ -167,7 +167,8 @@ def _record(user_id: str, result: TriageResult, source: str) -> None:
             tier=result.tier,
             trigger_source=source,
             reason=result.reason,
-            actions_taken=[a.kind for a in result.actions],
+            actions_planned=[a.kind for a in result.actions],
+            actions_taken=[],
         )
     )
 
@@ -873,12 +874,20 @@ async def get_vault_select(request: Request, context: str = "") -> dict:
     The clips are real recordings made by a real caregiver. The generative work is the
     situational judgement of which one belongs here; the emotional payload stays
     authentically human. We do not clone the caregiver's voice (PRD §7.2).
+
+    SCOPED TO THE CALLER'S VAULT. `for_user` restricts the candidate set to this
+    account's own clips plus the unowned shared demo fixtures. A recorded message
+    names the speaker, names the relationship, and was made for exactly one
+    listener; offering somebody else's to the selector would be a privacy failure
+    dressed up as a feature. Previously every clip in the database was a
+    candidate for every caller.
     """
-    clips = store.list_vault_clips()
+    user_id = _session_user(request)
+    clips = store.list_vault_clips(for_user=user_id)
     if not clips:
         return {"clip": None, "why": None, "error": "No vault clips recorded yet."}
 
-    profile = store.get_profile(_session_user(request))
+    profile = store.get_profile(user_id)
 
     # Delegate to genai.vault_select rather than parsing the model's JSON here.
     # That path validates the returned id against the clips we actually offered —
@@ -1351,16 +1360,37 @@ async def post_contact(body: dict = Body(...)) -> dict:
 
 
 @app.post("/api/account/delete")
-async def post_account_delete(request: Request) -> dict:
+async def post_account_delete(request: Request) -> JSONResponse:
     """Delete the signed-in account and everything attached to it.
 
     Immediate and total: no soft-delete, no thirty-day tombstone, no recovery
     window. A person who cannot leave cleanly was never safe being honest with us
     in the first place, and a retained shadow copy would make this policy a lie.
-    """
-    try:
-        from app import auth
 
+    FIVE PLACES, because /data-deletion names them and the page has to be true.
+    Deleting the database rows alone left the two most sensitive artefacts
+    behind — the vault clips and the cached 911 script:
+
+      1. Provider-side voice models (below, before the rows they hang off).
+      2. Database — profile, ladder, contacts, tolerance events, event log,
+         caregiver links in both directions, and the user's own Memory Vault
+         clips, which now carry an owner and so can finally be scoped.
+      3. Disk cache — cached generations produced for this account, including a
+         911 script carrying their home address and door entry code. The cache is
+         keyed by a prompt hash, so the owner index is what makes those files
+         findable at all; without it they simply survived.
+      4. Live in-memory state — the ladder cursor AND any open SSE listener
+         tagged with this account, so no stream keeps delivering events about
+         records that no longer exist.
+      5. The session cookie, cleared on the response, so the browser is not left
+         holding a signed token naming a deleted account.
+    """
+    # Imported outside the try: this route CANNOT complete without `auth`, since
+    # it must clear the session cookie at the end. Swallowing the import failure
+    # here would leave a signed-out-looking user still holding a valid token.
+    from app import auth
+
+    try:
         user = auth.user_from_request(request)
     except Exception:
         user = None
@@ -1382,12 +1412,40 @@ async def post_account_delete(request: Request) -> dict:
     except Exception as exc:  # pragma: no cover - defensive; deletion still proceeds
         log.warning("supporter voice purge failed during account deletion: %s", exc)
 
-    # Clear the live ladder cursor too, so no in-memory trace of the session outlives
-    # the deletion of the records behind it.
-    _tiers.pop(user.id, None)
-    store.delete_user_data(user.id)
+    # Read the cache keys BEFORE the rows go: `delete_user_data` drops the
+    # ownership index, after which the files on disk are unreachable orphans
+    # holding a home address and a door entry code.
+    from app import genai
 
-    return {"ok": True}
+    cache_keys = store.cache_keys_exclusively_owned_by(user.id)
+    counts = store.delete_user_data(user.id)
+
+    removed = 0
+    for key in cache_keys:
+        if genai.cache_delete(key):
+            removed += 1
+
+    # Clear the live in-memory trace too, so no ladder cursor and no open stream
+    # outlives the deletion of the records behind it.
+    _tiers.pop(user.id, None)
+    for listener in [l for l in _listeners if l.user_id == user.id]:
+        # Detached rather than closed: the stream generator owns its own
+        # lifecycle and ends when the client disconnects. Removing it here means
+        # the next broadcast cannot reach it.
+        _listeners.remove(listener)
+
+    response = JSONResponse(
+        {
+            "ok": True,
+            # Reported so the confirmation screen can state what was actually
+            # removed rather than asserting it generically. A deletion someone
+            # cannot verify is one they have to take on trust, which is precisely
+            # what this page exists to avoid asking of them.
+            "deleted": {**counts, "generation_cache_files": removed},
+        }
+    )
+    auth.clear_session_cookie(response)
+    return response
 
 
 # ---------------------------------------------------------------------------

@@ -116,6 +116,14 @@ __all__ = [
 # named constant so a clinician can change it in one place.
 TOLERANCE_WINDOW_DAYS = 90
 
+# Signal labels that indicate intent to die or self-harm rather than a purely
+# physical medical emergency. They share Tier 4 — and therefore share its
+# non-overridable caregiver notification — but the response leads with the
+# crisis line rather than with naloxone.
+_CRISIS_SIGNAL_LABELS = frozenset(
+    {"suicidal intent", "self-harm intent", "intentional overdose"}
+)
+
 # Used when no profile is supplied (onboarding, the bystander surface, tests).
 # Deliberately the same defaults as models.LadderConfig rather than a stricter
 # local copy: two sources of truth for a safety threshold is how they drift.
@@ -240,6 +248,75 @@ SIGNALS: list[Signal] = [
     # These are the sentences a person says while dying. They are matched
     # without negation handling wherever the phrase is itself a negation, and
     # they outrank every other row in the table.
+    # ---- Tier 4: suicidal statements -------------------------------------
+    #
+    # THIS BLOCK EXISTS BECAUSE ITS ABSENCE WAS A LETHAL GAP.
+    # Before it, "I am ending my life right now" triaged to Tier 0 and the
+    # system did nothing whatsoever.
+    #
+    # Suicide and overdose are not separate populations. Overdose deaths are
+    # frequently intentional or ambiguous in intent, and a person in withdrawal
+    # or early recovery is at elevated risk of both. A product built around
+    # overdose that stays silent when someone says they are going to die is not
+    # a neutral omission — it is the single worst failure this table could have.
+    #
+    # These rows sit at Tier 4 alongside the medical emergencies, which means
+    # they carry the same non-overridable caregiver notification (PRD §4.2).
+    # That is deliberate and is disclosed at onboarding: the one thing the user
+    # cannot switch off is us alerting someone when we believe they are in
+    # danger. Intent to die is that.
+    #
+    # NEGATION IS DISABLED on the explicit-intent rows. "I don't want to kill
+    # myself" and "I'm not going to hurt myself" are things people say while
+    # in serious distress, and are frequently disclosures rather than denials.
+    # In every other row in this table a false positive costs a rescind tap; in
+    # this one a false negative costs a life, so the asymmetry is inverted on
+    # purpose. The member can always stand it down with one press.
+    #
+    # The 988 Suicide & Crisis Lifeline is surfaced by the actions for this
+    # tier — not 911 alone, because a police response to a mental-health crisis
+    # carries its own well-documented risk of harm.
+    Signal(
+        label="suicidal intent",
+        tier=Tier.EMERGENCY,
+        pattern=(
+            r"\b(kill|killing)\s+(myself|my\s?self)\b"
+            r"|\bend(ing)?\s+(my|it)\s+(life|all)\b"
+            r"|\bend(ing)?\s+it\s+(tonight|now|today)\b"
+            r"|\btak(e|ing)\s+my\s+own\s+life\b"
+            r"|\bsuicid(e|al)\b"
+            r"|\bnot\s+be\s+(here|alive)\s+(anymore|any\s?more|tomorrow)\b"
+            r"|\bwant\s+to\s+die\b"
+            r"|\bdon'?t\s+want\s+to\s+(live|be\s+here|wake\s+up)\b"
+        ),
+        negatable=False,  # see the note above — deliberately not negatable
+        example="I am ending my life right now",
+    ),
+    Signal(
+        label="self-harm intent",
+        tier=Tier.EMERGENCY,
+        pattern=r"\b(hurt|harm|cut)\s+(myself|my\s?self)\b",
+        negatable=False,
+        example="I am going to hurt myself",
+    ),
+    Signal(
+        label="intentional overdose",
+        tier=Tier.EMERGENCY,
+        # "I took all of them" is a description of an intentional overdose and
+        # was previously landing at Tier 3 (disclosure of use), which is far
+        # too low: it is an emergency in progress, not a relapse.
+        pattern=(
+            # Anchored to SUBSTANCES. An unanchored "took all/the whole"
+            # matched "I took all the trash out", which is housework.
+            r"\btook\s+(all|every|the\s+whole|a\s+whole)\s+"
+            r"(of\s+)?(the\s+|my\s+|them|it)?"
+            r"(pills?|bottle|script|bag|tabs?|dose|doses|meds|medication|"
+            r"benzos?|xanax|oxys?|percs?|klonopin|methadone|subs?)\b"
+            r"|\ball\s+(of\s+)?(the\s+|my\s+)?(pills|bottle|script|bag)\b"
+        ),
+        negatable=False,
+        example="I took all the pills",
+    ),
     Signal(
         label="cannot breathe",
         tier=Tier.EMERGENCY,
@@ -360,7 +437,11 @@ SIGNALS: list[Signal] = [
     Signal(
         label="dying",
         tier=Tier.EMERGENCY,
-        pattern=r"\b(i'?m dying|i think i'?m dying|going to die|gonna die)\b",
+        # "dying to <verb>" is an idiom for eagerness, not a disclosure —
+        # "I'm dying to see her" was reaching Tier 4. The lookahead excludes
+        # the infinitive form while leaving every genuine use intact.
+        pattern=r"\b(i'?m dying|i think i'?m dying)\b(?!\s+to\s+\w)"
+                r"|\b(going to die|gonna die)\b",
         example="I think I'm dying",
     ),
     Signal(
@@ -394,8 +475,16 @@ SIGNALS: list[Signal] = [
         # "I did" that showed up in testing: "I took a walk", "I took my meds",
         # "I did a break". Prescribed medication is excluded on purpose — this
         # app must not treat adherence to a prescription as a relapse.
+        # Extended after testing: "I took all the trash out" and "I took the
+        # laundry upstairs" were both being logged as disclosed drug use. A
+        # relapse falsely written into someone's permanent event log — which
+        # their caregiver may read — is not a harmless false positive.
         pattern=r"\bi\s+(just\s+|already\s+)?(took|did|shot|slammed|snorted|smoked)\b"
-        r"(?!\s+(to|a walk|a break|a nap|my meds)\b)",
+        r"(?!\s+(to|a\s+(walk|break|nap|shower|bath|look|photo|picture|day|"
+        r"class|cab|taxi|bus|train)|my\s+(meds|medication|pills|dog|kid|kids|"
+        r"son|daughter|car|time)|the\s+(trash|bins?|rubbish|laundry|dishes|"
+        r"dog|kids?|bus|train|stairs|day\s+off)|out\s+the|all\s+the\s+"
+        r"(trash|rubbish|laundry|dishes|bins?))\b)",
         example="I just took it",
     ),
     Signal(
@@ -917,6 +1006,32 @@ _notify_caregiver = notify_caregiver_for
 # --------------------------------------------------------------------------
 # The state machine
 # --------------------------------------------------------------------------
+def _actions_with_crisis(
+    tier: Tier, profile: UserProfile | None, matched_signal: str | None
+) -> list[Action]:
+    """Tier actions, with the crisis line surfaced first for suicidal statements.
+
+    The physical emergency actions still run underneath. Intent to die and
+    overdose co-occur often enough that dropping either set would be a guess
+    about which one is happening, and this module does not guess — it offers
+    both and lets the person in front of the screen choose.
+
+    988 leads rather than 911 because a police response to a mental-health
+    crisis carries its own documented risk of harm. 911 remains one tap away.
+    """
+    actions = actions_for_tier(tier, profile)
+    if matched_signal in _CRISIS_SIGNAL_LABELS:
+        actions.insert(
+            0,
+            Action(
+                kind="show_crisis_line",
+                detail="988 Suicide & Crisis Lifeline — call or text, 24/7.",
+                at_second=0,
+            ),
+        )
+    return actions
+
+
 def _result(
     tier: Tier,
     previous: Tier,
@@ -946,7 +1061,7 @@ def _result(
         previous_tier=previous,
         reason=reason,
         matched_signal=matched_signal,
-        actions=actions_for_tier(tier, profile),
+        actions=_actions_with_crisis(tier, profile, matched_signal),
         notify_caregiver=_notify_caregiver(tier, profile),
     )
 
