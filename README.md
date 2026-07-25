@@ -7,6 +7,51 @@ Built for PromptWars (Google for Developers / Build with AI), Thiruvananthapuram
 
 ---
 
+## Submission overview
+
+### Chosen vertical
+
+**Recovery and overdose prevention** for people navigating substance use
+disorders, their invited caregivers, and bystanders responding to a possible
+overdose.
+
+### Approach and logic
+
+Threshold is a multimodal GenAI assistant wrapped in deterministic medical
+safety guardrails. Speech input, Gemini-generated interventions, ElevenLabs
+spoken output, caregiver context, and visual emergency controls provide a
+zero-typing path when cognitive load is high. A six-state escalation ladder
+turns explicit phrases, missed check-ins, sensor events, and member actions into
+an auditable state. Gemini personalizes what the assistant says; deterministic
+rules decide when emergency controls must appear.
+
+### How the solution works
+
+1. A member completes a verified-email account and emergency profile.
+2. Push-to-talk captures an utterance; deterministic triage updates the visible
+   ladder without waiting for a model.
+3. Gemini 3.1 Flash Lite generates the contextual response, prevention guidance,
+   refusal script, validated 911 script, Memory Vault selection, or caregiver
+   brief appropriate to that moment.
+4. ElevenLabs v3 speaks normal interventions; ElevenLabs Flash v2.5 is reserved
+   for low-latency urgent guidance. A labelled device-voice fallback prevents
+   silence when cloud speech fails.
+5. At a medical emergency the interface removes secondary choices, exposes
+   one-tap 911 and naloxone guidance, and emails verified linked caregivers.
+
+### Assumptions
+
+- The judged deployment is US-focused, so emergency calling uses 911 and legal
+  summaries are selected by US state.
+- Phone number is required contact information but is not OTP-verified; email
+  ownership is verified through Resend.
+- Microphone, speech synthesis, location, and network access may be unavailable,
+  so every critical interaction has a visual or local fallback.
+- Threshold supports recovery and overdose response but does not diagnose,
+  replace clinicians, or confirm that emergency services completed an action.
+- Caregiver access exists only after an expiring member-generated invitation;
+  permissions are enforced server-side.
+
 ## Demo credentials
 
 Printed on the login screen and pre-filled in the form. No evaluator should ever be
@@ -75,13 +120,16 @@ net-negative no matter how good its alerting is. So the user decides which tiers
 caregiver can see — with exactly one exception, disclosed at onboarding and not
 overridable: if the system believes you are in medical danger, it alerts someone.
 
+### A distinctive multimodal feature
+
+- **Consented caregiver voice cloning.** The caregiver records and consents in
+  their own account, sharing is a separate action, and the member explicitly
+  opts in. Every utterance is labelled as an AI recreation, it may never claim
+  the real person is present, and either side can revoke it. Memory Vault
+  messages remain real recordings.
+
 ### What we deliberately did not build
 
-- **Caregiver voice cloning is consented at both ends.** The caregiver records
-  and consents in their own account, sharing is a separate action, and the
-  member explicitly opts in. Every utterance is labelled as an AI recreation,
-  it may never claim the real person is present, and either side can revoke it.
-  Memory Vault messages remain real recordings.
 - **No model-generated legal text.** Good Samaritan immunity varies substantially by
   state, and hallucinated legal protection is the single worst failure mode this
   product could have. `data/legal/` is a static, human-reviewed dataset.
@@ -106,13 +154,11 @@ The judging rules disqualify canned responses presented as model output. Every
 generative surface in this app makes a real API call to Google Gemini via
 OpenRouter.
 
-One endpoint is deliberately NOT generative: `/api/script/911` renders the
-emergency script from a deterministic template. It contains a home address, an
-apartment number and a door entry code, and those facts must be reproduced
-character-for-character and must work with the network down. A model is the
-wrong tool for reciting an address, so it is not used there — and the response
-says so, carrying `deterministic: true` rather than pretending to be a
-generation.
+`/api/script/911` uses Gemini to personalize a short dispatcher script ahead of
+need. Address, unit, cross-street, and entry facts are validated
+character-for-character before the result can be shown. If generation is
+offline or changes a critical fact, the endpoint returns a clearly labelled
+verified local template instead.
 
 When a generative call fails, the UI says so explicitly and labels any cached
 fallback as a fallback. A fallback never masquerades as a live generation — look

@@ -1,0 +1,9 @@
+{
+  "name": "threshold-recovery-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:frontend",
+    "test:frontend": "node --test tests/frontend/*.test.js"
+  }
+}
