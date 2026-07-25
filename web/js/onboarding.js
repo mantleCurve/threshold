@@ -235,7 +235,12 @@ function applyProfile(profile) {
     const value = profile[f.key];
     if (value === undefined || value === null) return;
     if (f.type === 'bool') el.checked = !!value;
-    else el.value = String(value);
+    else if (f.id === 'state-code' && !el.querySelector(`option[value="${String(value)}"]`)) {
+      // Profiles created before the India launch carry the former US default.
+      // Do not render an empty select; show Karnataka until the member chooses
+      // and explicitly saves their actual state.
+      el.value = 'KA';
+    } else el.value = String(value);
   });
 }
 
